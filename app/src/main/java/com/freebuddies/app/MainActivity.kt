@@ -30,6 +30,10 @@ import androidx.navigation.compose.rememberNavController
 import com.freebuddies.app.protocol.AncMode
 import kotlinx.coroutines.launch
 
+import android.content.Intent
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.core.net.toUri
+
 class MainActivity : ComponentActivity() {
     private val vm by lazy { FreeBudsViewModel() }
 
@@ -45,7 +49,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         checkPermissions()
         setContent {
-            FreebuddiesTheme {
+            val isDarkMode by vm.isDarkMode.collectAsStateWithLifecycle()
+            FreebuddiesTheme(darkTheme = isDarkMode) {
                 FreebuddiesApp(vm)
             }
         }
@@ -73,8 +78,13 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun FreebuddiesTheme(content: @Composable () -> Unit) {
-    MaterialTheme(content = content)
+fun FreebuddiesTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
+    val colorScheme = if (darkTheme) {
+        darkColorScheme()
+    } else {
+        lightColorScheme()
+    }
+    MaterialTheme(colorScheme = colorScheme, content = content)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -267,8 +277,22 @@ fun HomeScreen(vm: FreeBudsViewModel) {
 @Composable
 fun SettingsScreen(vm: FreeBudsViewModel) {
     val deviceInfo by vm.deviceInfo.collectAsStateWithLifecycle(initialValue = null)
+    val isDarkMode by vm.isDarkMode.collectAsStateWithLifecycle()
 
-    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text("App Settings", style = MaterialTheme.typography.titleLarge)
+        
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("Dark Mode")
+            Switch(checked = isDarkMode, onCheckedChange = { vm.toggleDarkMode() })
+        }
+
+        HorizontalDivider()
+
         Text("Device Settings", style = MaterialTheme.typography.titleLarge)
         deviceInfo?.let { info ->
             Text("Model: ${info.modelCode}")
@@ -281,7 +305,34 @@ fun SettingsScreen(vm: FreeBudsViewModel) {
 
 @Composable
 fun AboutScreen(@Suppress("UNUSED_PARAMETER") vm: FreeBudsViewModel) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text("Freebuddies App v1.0\nControl your Huawei FreeBuds Pro 4")
+    val context = LocalContext.current
+    Column(
+        Modifier.fillMaxSize().padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text("Freebuddies", style = MaterialTheme.typography.headlineMedium)
+        Text("v1.0", style = MaterialTheme.typography.bodyMedium)
+        Spacer(Modifier.height(16.dp))
+        Text(
+            "An open-source companion app for Huawei FreeBuds Pro 4.",
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+        Spacer(Modifier.height(32.dp))
+        
+        Button(onClick = {
+            val intent = Intent(Intent.ACTION_VIEW, "https://github.com/IAL32/freebuddies".toUri())
+            context.startActivity(intent)
+        }) {
+            Text("GitHub Repository")
+        }
+        
+        TextButton(onClick = {
+            val intent = Intent(Intent.ACTION_VIEW, "https://github.com/IAL32".toUri())
+            context.startActivity(intent)
+        }) {
+            Text("Author: IAL32")
+        }
     }
 }

@@ -27,6 +27,13 @@ class FreeBudsViewModel : ViewModel() {
     private val _targetDevice = MutableStateFlow<BluetoothDevice?>(null)
     val targetDevice = _targetDevice.asStateFlow()
 
+    private val _isDarkMode = MutableStateFlow(false)
+    val isDarkMode = _isDarkMode.asStateFlow()
+
+    fun toggleDarkMode() {
+        _isDarkMode.value = !_isDarkMode.value
+    }
+
     private var autoReconnectJob: kotlinx.coroutines.Job? = null
     private var isConnecting = false
 
