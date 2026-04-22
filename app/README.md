@@ -1,0 +1,603 @@
+# Huawei FreeBuds 4 — SPP Protocol Reference
+
+Reverse-engineered protocol notes for building an Android companion app for the Huawei FreeBuds 4 (model `T0022` / `T0022C`). Derived from a Wireshark capture of AI Life ↔ buds traffic, cross-referenced with MelianMiko's FreeBuds 4i research and Gadgetbridge issue #4241.
+
+This document is the spec. Every byte layout, TLV tag, and state transition below was observed on the wire.
+
+---
+
+## Table of contents
+
+1. [Transport](#1-transport)
+2. [Frame format](#2-frame-format)
+3. [CRC16-XModem](#3-crc16-xmodem)
+4. [TLV encoding](#4-tlv-encoding)
+5. [Command reference](#5-command-reference)
+6. [Android implementation guide](#6-android-implementation-guide)
+7. [Minimum viable feature set](#7-minimum-viable-feature-set)
+8. [Known unknowns](#8-known-unknowns)
+9. [References](#9-references)
+
+---
+
+## 1. Transport
+
+The buds expose a standard Bluetooth **RFCOMM Serial Port Profile** channel.
+
+- **SPP service UUID:** `00001101-0000-1000-8000-00805F9B34FB`
+- **RFCOMM channel:** discovered via SDP (channel 1 in the capture, but do not hard-code — always resolve via SDP)
+- **Direction:** full duplex, byte stream
+- **Framing:** Huawei MDN protocol (see §2)
+
+The buds must already be paired and connected (A2DP/HFP established) before the SPP channel becomes reachable. On Android, connect using `BluetoothDevice.createRfcommSocketToServiceRecord(UUID)`.
+
+Do **not** attempt to read battery via the HFP vendor AT channel. The buds reply `ERROR` to `AT+HUAWEIBATTERY=?`, `AT+XHUAWEISF=?`, and `AT+TBSF=?`. All diagnostics flow over SPP.
+
+---
+
+## 2. Frame format
+
+Every frame — in both directions — has this layout:
+
+```
+┌──────┬────────────┬──────┬─────────┬─────────┬──────────────┬──────────┐
+│ 0x5A │ len (BE16) │ 0x00 │ svc_id  │ cmd_id  │ TLV payload  │ CRC16-XM │
+│  1 B │    2 B     │  1 B │   1 B   │   1 B   │   variable   │   2 B    │
+└──────┴────────────┴──────┴─────────┴─────────┴──────────────┴──────────┘
+```
+
+| Field | Size | Notes |
+|-------|------|-------|
+| Magic | 1 | Always `0x5A` (ASCII `'Z'`). First byte of every frame. |
+| Length | 2 | Big-endian. Counts bytes from the constant `0x00` through the end of the TLV payload. Equals `tlv_bytes_len + 3`. Does **not** include magic, length itself, or CRC. |
+| Constant | 1 | Always `0x00`. |
+| Service ID | 1 | Command group. Observed: `0x01` (system / battery), `0x2B` (device config / ANC). |
+| Command ID | 1 | Specific command within the service. |
+| TLV payload | variable | Zero or more TLV records (see §4). |
+| CRC16 | 2 | CRC16-XModem over everything from magic through end of TLV payload. Big-endian on the wire. |
+
+### Byte-order rules
+
+- The 2-byte **length** field is **big-endian**.
+- The 2-byte **CRC** is **big-endian** on the wire.
+- Multi-byte values inside TLVs (rare) are big-endian unless noted otherwise.
+
+### Worked example — request battery
+
+```
+5A 00 06 00 01 08 00 00 XX XX
+│  └───┬──┘ │  └─┬─┘ └─┬─┘ └─┬─┘
+│      │    │    │     │     └─ CRC16-XM (compute over everything before)
+│      │    │    │     └─────── (no TLVs — single empty TLV would be 00 00,
+│      │    │    │               here literally two zero bytes as seen in the wild)
+│      │    │    └───────────── cmd_id = 0x08 (GET_BATTERY)
+│      │    │                   svc_id = 0x01 (SYSTEM)
+│      │    └────────────────── constant 0x00
+│      └─────────────────────── length = 6 (covers 00 | 01 08 | 00 00)
+└────────────────────────────── magic 0x5A
+```
+
+### Worked example — set ANC to "Awareness ON"
+
+```
+5A 00 09 00 2B 5D 01 02 01 01 XX XX
+             └─┬─┘ └─┬─┘ └─┬─┘ └───┬─────┘
+               │     │     │      └─ CRC16-XM
+               │     │     └──────── TLV value: enabled=1, mode=1 (awareness)
+               │     └────────────── TLV tag 01, length 02
+               └──────────────────── svc 2B, cmd 5D (SET_SOUND_CONTROL)
+```
+
+Length field = 9: covers `00 | 2B 5D | 01 02 01 01` → 7 bytes of header + TLV, plus... wait. Let me be precise: length covers the constant `0x00` + svc + cmd + TLV bytes. That's `1 + 1 + 1 + 4 = 7`. But the observed frames in the capture use `len = tlv_payload_len + 3` which gives 7 here, not 9. **Double-check against a live capture before shipping** — the capture consistently shows length = TLV bytes + 3 (i.e. constant + svc + cmd).
+
+**Canonical formula:** `length = 3 + len(TLV bytes)`.
+
+For the example above: TLV bytes = `01 02 01 01` = 4 bytes, so `length = 7`. Corrected frame:
+
+```
+5A 00 07 00 2B 5D 01 02 01 01 CRC_HI CRC_LO
+```
+
+---
+
+## 3. CRC16-XModem
+
+Standard CRC16-XModem:
+
+- **Polynomial:** `0x1021`
+- **Initial value:** `0x0000`
+- **Reflect input:** no
+- **Reflect output:** no
+- **XOR out:** `0x0000`
+
+**Input:** all bytes from the `0x5A` magic through the last TLV byte (i.e. everything except the CRC itself).
+
+**Output byte order on the wire:** big-endian (high byte first).
+
+### Kotlin reference implementation
+
+```kotlin
+object Crc16Xmodem {
+    fun compute(data: ByteArray, offset: Int = 0, length: Int = data.size): Int {
+        var crc = 0x0000
+        for (i in offset until offset + length) {
+            crc = crc xor ((data[i].toInt() and 0xFF) shl 8)
+            repeat(8) {
+                crc = if ((crc and 0x8000) != 0) {
+                    ((crc shl 1) xor 0x1021) and 0xFFFF
+                } else {
+                    (crc shl 1) and 0xFFFF
+                }
+            }
+        }
+        return crc and 0xFFFF
+    }
+}
+```
+
+Verify against a known-good frame from the capture before trusting it:
+
+```
+5A 00 05 00 2B 2A 01 00  →  CRC must be 0x427E
+```
+
+---
+
+## 4. TLV encoding
+
+The payload section is zero or more Type-Length-Value records, concatenated without any separator or count:
+
+```
+┌──────┬──────┬─────────────┐
+│ type │ len  │ value bytes │
+│ 1 B  │ 1 B  │  len bytes  │
+└──────┴──────┴─────────────┘
+```
+
+- **Type** (tag): 1 byte, identifies the field. Tag values are scoped to the specific `(svc, cmd)` they appear in — tag 01 in a battery response is not the same field as tag 01 in a device-info response.
+- **Length:** 1 byte, unsigned. Max 255. A length of 0 is legal (empty value, used by the phone as a "ping" payload for get requests).
+- **Value:** `len` raw bytes. Interpretation depends on the tag.
+
+### Reading TLVs
+
+```kotlin
+data class Tlv(val type: Int, val value: ByteArray)
+
+fun parseTlvs(payload: ByteArray): List<Tlv> {
+    val out = mutableListOf<Tlv>()
+    var i = 0
+    while (i + 2 <= payload.size) {
+        val type = payload[i].toInt() and 0xFF
+        val len = payload[i + 1].toInt() and 0xFF
+        if (i + 2 + len > payload.size) break  // truncated; drop
+        out += Tlv(type, payload.copyOfRange(i + 2, i + 2 + len))
+        i += 2 + len
+    }
+    return out
+}
+```
+
+### Writing TLVs
+
+```kotlin
+fun encodeTlvs(tlvs: List<Tlv>): ByteArray {
+    val buf = java.io.ByteArrayOutputStream()
+    for (tlv in tlvs) {
+        buf.write(tlv.type)
+        buf.write(tlv.value.size)
+        buf.write(tlv.value)
+    }
+    return buf.toByteArray()
+}
+```
+
+---
+
+## 5. Command reference
+
+Commands are identified by the `(svc_id, cmd_id)` pair. Service IDs observed:
+
+- `0x01` — SYSTEM (device info, battery, language, gesture actions)
+- `0x2B` — DEVICE (ANC, in-ear state, per-device config)
+
+### 5.1 Device info
+
+#### Request — `(0x01, 0x07)` or `(0x2B, 0x0A)`
+
+The buds broadcast a device-info bundle under `(0x2B, 0x0A)` shortly after the RFCOMM channel is established. You can also request it explicitly. Both responses carry the same TLV layout.
+
+**Request payload:** empty (no TLVs).
+
+#### Response — device info bundle
+
+| Tag | Type | Description | Example |
+|-----|------|-------------|---------|
+| 01 | ASCII string | Serial number | `3RRXC25408034501` |
+| 02 | ASCII string | Model code | `T0022/T0022C` |
+| 03 | ASCII string | Hardware revision | `082` |
+| 04 | ASCII string | Region / HW variant | `001` |
+| 05 | ASCII string | Color / SKU code | `ZAAM` |
+| 06 | ASCII string | Firmware version | `1.0.0.x` |
+
+Model code `T0022/T0022C` is the canonical identifier for FreeBuds 4. Use it to reject frames from other Huawei audio devices if your app targets FreeBuds 4 specifically.
+
+### 5.2 Battery status ⭐
+
+This is the command that matters most for a companion app.
+
+#### Request — `(0x01, 0x08)`
+
+**Payload:** empty.
+
+In practice you rarely need to poll. The buds push updates autonomously via `(0x01, 0x27)` whenever battery, charging, or wear state changes.
+
+#### Response — `(0x01, 0x08)` (reply) / `(0x01, 0x27)` (push notification)
+
+Both messages share the exact same TLV layout. The only difference is that `0x27` is unsolicited.
+
+| Tag | Type | Description |
+|-----|------|-------------|
+| 01 | uint8 | Aggregate/lowest battery level (legacy field). `0–100`. |
+| 02 | 3 × uint8 | **Per-component battery:** `[left%, right%, case%]`. Each byte 0–100. |
+| 03 | 3 × uint8 | **Charging state:** `[left, right, case]`. Each byte: `0` = not charging, `1` = charging. |
+| 04 | 2 × uint8 | Unknown, constant in capture. Observed `0x0A 0x14` (10, 20). Likely low-battery warning thresholds. Safe to ignore. |
+| 05 | 2 × uint8 | **In-ear state:** `[left, right]`. `0` = out, `1` = in. (Duplicated in §5.3 with more granularity.) |
+| 06 | uint8 | Unknown, always `0x0A` in capture. Safe to ignore. |
+
+#### Kotlin decoder
+
+```kotlin
+data class BatteryStatus(
+    val leftPercent: Int,
+    val rightPercent: Int,
+    val casePercent: Int,
+    val leftCharging: Boolean,
+    val rightCharging: Boolean,
+    val caseCharging: Boolean,
+    val leftInEar: Boolean,
+    val rightInEar: Boolean,
+) {
+    companion object {
+        fun fromTlvs(tlvs: List<Tlv>): BatteryStatus? {
+            val levels = tlvs.find { it.type == 0x02 }?.value?.takeIf { it.size == 3 } ?: return null
+            val charging = tlvs.find { it.type == 0x03 }?.value?.takeIf { it.size == 3 } ?: return null
+            val wear = tlvs.find { it.type == 0x05 }?.value?.takeIf { it.size == 2 }
+            return BatteryStatus(
+                leftPercent = levels[0].toInt() and 0xFF,
+                rightPercent = levels[1].toInt() and 0xFF,
+                casePercent = levels[2].toInt() and 0xFF,
+                leftCharging = charging[0].toInt() == 1,
+                rightCharging = charging[1].toInt() == 1,
+                caseCharging = charging[2].toInt() == 1,
+                leftInEar = (wear?.get(0)?.toInt() ?: 0) == 1,
+                rightInEar = (wear?.get(1)?.toInt() ?: 0) == 1,
+            )
+        }
+    }
+}
+```
+
+### 5.3 In-ear / wear state
+
+#### Notification — `(0x2B, 0x25)`
+
+Pushed by the buds whenever a bud is inserted or removed. No request needed.
+
+| Tag | Type | Description |
+|-----|------|-------------|
+| 01 | uint8 | Left bud in-ear. `0` = out, `1` = in. |
+| 02 | uint8 | Reserved. Always `0x00` in capture. |
+| 03 | uint8 | Reserved. Always `0x00` in capture. |
+| 04 | uint8 | Right bud in-ear. `0` = out, `1` = in. |
+
+**Note the indexing:** left is tag 01, right is tag 04 (not 02). Tags 02 and 03 appear reserved for a four-bud topology that FreeBuds 4 doesn't use.
+
+### 5.4 Sound control (ANC / Awareness)
+
+FreeBuds 4 uses a different command pair than the 4i. Do not reuse `2B 04` from the 4i docs.
+
+#### Write — `(0x2B, 0x5D)`
+
+| Tag | Type | Description |
+|-----|------|-------------|
+| 01 | 2 × uint8 | `[enabled, mode]`. `enabled`: 0 = off, 1 = on. `mode`: 0 = noise cancellation, 1 = awareness. |
+
+The four meaningful combinations:
+
+| enabled | mode | Meaning |
+|---------|------|---------|
+| 0 | 0 | Off (normal passthrough) |
+| 1 | 0 | Noise cancellation active |
+| 0 | 1 | Awareness mode selected but disabled |
+| 1 | 1 | Awareness active |
+
+#### Notification / echo — `(0x2B, 0x5E)`
+
+Pushed whenever the sound-control state changes — either because you wrote `0x5D`, or because the user long-pressed on a bud.
+
+| Tag | Type | Description |
+|-----|------|-------------|
+| 02 | 2 × uint8 | Same `[enabled, mode]` encoding as the write. |
+| 01 | uint8 | Short-form status ping (rare). Value `0x02` observed. |
+
+#### Read — `(0x2B, 0x2A)`
+
+Returns the current mode. Response carries tag `01` with 2 bytes. First byte is the mode group (`0..3`), second byte is a submode/intensity. Combinations observed in the capture: `00 00`, `00 01`, `01 01`, `01 02`, `02 01`, `02 02`, `03 01`. Correlate with the AI Life UI to map the full matrix if you want per-intensity control.
+
+### 5.5 Preferred ANC cycle list
+
+Controls which ANC modes the long-press gesture cycles through.
+
+#### Read — `(0x2B, 0x19)`
+
+Response TLVs (inferred from FreeBuds 4i docs, observed raw on the wire):
+
+| Tag | Type | Description |
+|-----|------|-------------|
+| 01 | int8 | Selected cycle option for left bud. See table below. |
+| 02 | int8 | Selected cycle option for right bud. |
+| 03 | 10 × uint8 | Ordered list of mode IDs to cycle through. Values 1–10. |
+
+Cycle-option values (from 4i reference, may extend on FreeBuds 4):
+
+| Value | Meaning |
+|-------|---------|
+| 1 | Off + noise cancellation only |
+| 2 | All modes |
+| 3 | Noise cancellation + awareness |
+| 4 | Off + awareness |
+
+#### Write — `(0x2B, 0x18)`
+
+Same TLV layout as the read. Note: writing tag 01 or tag 02 may copy to the other bud — the FreeBuds 4i docs flag this behavior and it likely applies here too. Test before assuming independent per-bud cycles.
+
+### 5.6 Other observed messages (lower confidence)
+
+| svc cmd | Seen | Notes |
+|---------|------|-------|
+| `(0x2B, 0x04)` | RX often | Always `TLV 02 = 0x00`. Looks like an echo/ack of the current ANC command. On the 4i this was the ANC *write* — on FreeBuds 4 the write moved to `0x5D`, so `0x04` may now be a status broadcast. |
+| `(0x2B, 0x5F)` | RX rare | `TLV 01 = 0x00`. Appeared once near ANC state changes. Possibly a secondary sound attribute (wind noise? voice boost?). **Unidentified — don't ship code that depends on it.** |
+| `(0x2B, 0x37)` | TX once | Sent with `TLV 01 = 0x00`. One parameter, value 0. Unresearched. |
+| `(0x01, 0x26)` | TX once | `TLV 01 = 0x00`, `TLV 02 = 0x00`. Unresearched. |
+
+---
+
+## 6. Android implementation guide
+
+### 6.1 Permissions (AndroidManifest.xml)
+
+```xml
+<uses-permission android:name="android.permission.BLUETOOTH_CONNECT"
+    tools:targetApi="31" />
+<uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+    tools:targetApi="31" />
+<!-- For Android 11 and below -->
+<uses-permission android:name="android.permission.BLUETOOTH"
+    android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
+    android:maxSdkVersion="30" />
+<!-- Location was required for BT scanning on older versions -->
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
+    android:maxSdkVersion="30" />
+```
+
+Runtime-request `BLUETOOTH_CONNECT` before touching any `BluetoothDevice` API on Android 12+.
+
+### 6.2 Connection lifecycle
+
+```kotlin
+class FreeBudsConnection(private val device: BluetoothDevice) {
+    private val sppUuid = java.util.UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
+    private var socket: BluetoothSocket? = null
+    private var reader: Thread? = null
+
+    fun connect() {
+        socket = device.createRfcommSocketToServiceRecord(sppUuid).apply {
+            connect()
+        }
+        startReader()
+    }
+
+    private fun startReader() {
+        reader = Thread {
+            val input = socket!!.inputStream
+            val framer = FrameReader()
+            val buf = ByteArray(512)
+            while (!Thread.currentThread().isInterrupted) {
+                val n = input.read(buf)
+                if (n <= 0) break
+                framer.feed(buf, 0, n).forEach(::onFrame)
+            }
+        }.also { it.start() }
+    }
+
+    fun close() {
+        reader?.interrupt()
+        socket?.close()
+    }
+
+    private fun onFrame(frame: Frame) { /* dispatch */ }
+}
+```
+
+### 6.3 Stream framer
+
+SPP is a byte stream. Frames may arrive split across reads or concatenated. You need a stateful framer:
+
+```kotlin
+class FrameReader {
+    private val buf = java.io.ByteArrayOutputStream()
+
+    fun feed(data: ByteArray, offset: Int, length: Int): List<Frame> {
+        buf.write(data, offset, length)
+        val bytes = buf.toByteArray()
+        buf.reset()
+        val frames = mutableListOf<Frame>()
+        var i = 0
+        while (i < bytes.size) {
+            // Need at least magic + length (3 bytes) to know frame size
+            if (bytes.size - i < 3) break
+            if (bytes[i] != 0x5A.toByte()) {
+                // Resync: scan for next magic
+                i++
+                continue
+            }
+            val len = ((bytes[i + 1].toInt() and 0xFF) shl 8) or (bytes[i + 2].toInt() and 0xFF)
+            val totalSize = 1 + 2 + len + 2  // magic + len field + (len bytes) + CRC
+            if (bytes.size - i < totalSize) break  // incomplete, wait for more
+            val frame = Frame.parse(bytes, i, totalSize)
+            if (frame != null) frames += frame
+            i += totalSize
+        }
+        // Re-buffer any tail we didn't consume
+        if (i < bytes.size) buf.write(bytes, i, bytes.size - i)
+        return frames
+    }
+}
+
+data class Frame(val service: Int, val command: Int, val tlvs: List<Tlv>) {
+    companion object {
+        fun parse(data: ByteArray, offset: Int, size: Int): Frame? {
+            // magic(1) + len(2) + const0(1) + svc(1) + cmd(1) + tlv... + crc(2)
+            if (size < 9) return null
+            // Verify CRC
+            val expected = ((data[offset + size - 2].toInt() and 0xFF) shl 8) or
+                           (data[offset + size - 1].toInt() and 0xFF)
+            val computed = Crc16Xmodem.compute(data, offset, size - 2)
+            if (expected != computed) return null
+            val svc = data[offset + 4].toInt() and 0xFF
+            val cmd = data[offset + 5].toInt() and 0xFF
+            val tlvBytes = data.copyOfRange(offset + 6, offset + size - 2)
+            return Frame(svc, cmd, parseTlvs(tlvBytes))
+        }
+    }
+}
+```
+
+### 6.4 Writing frames
+
+```kotlin
+fun buildFrame(service: Int, command: Int, tlvs: List<Tlv> = emptyList()): ByteArray {
+    val tlvBytes = encodeTlvs(tlvs)
+    val length = 3 + tlvBytes.size  // const + svc + cmd + tlv
+    val header = ByteArray(6).apply {
+        this[0] = 0x5A
+        this[1] = ((length ushr 8) and 0xFF).toByte()
+        this[2] = (length and 0xFF).toByte()
+        this[3] = 0x00
+        this[4] = service.toByte()
+        this[5] = command.toByte()
+    }
+    val body = header + tlvBytes
+    val crc = Crc16Xmodem.compute(body, 0, body.size)
+    return body + byteArrayOf(((crc ushr 8) and 0xFF).toByte(), (crc and 0xFF).toByte())
+}
+
+// Usage
+val getBattery = buildFrame(0x01, 0x08)
+val setAncAwareness = buildFrame(0x2B, 0x5D, listOf(Tlv(0x01, byteArrayOf(1, 1))))
+socket.outputStream.write(setAncAwareness)
+```
+
+### 6.5 Dispatch
+
+Route incoming frames by `(service, command)`:
+
+```kotlin
+fun onFrame(frame: Frame) {
+    when (frame.service to frame.command) {
+        0x01 to 0x08, 0x01 to 0x27 -> {
+            BatteryStatus.fromTlvs(frame.tlvs)?.let(::onBatteryUpdate)
+        }
+        0x2B to 0x0A -> DeviceInfo.fromTlvs(frame.tlvs)?.let(::onDeviceInfo)
+        0x2B to 0x25 -> InEarState.fromTlvs(frame.tlvs)?.let(::onInEarUpdate)
+        0x2B to 0x5E -> AncState.fromTlvs(frame.tlvs)?.let(::onAncUpdate)
+        else -> Log.d("FreeBuds", "Unhandled frame: svc=${frame.service} cmd=${frame.command}")
+    }
+}
+```
+
+### 6.6 Threading notes
+
+- The reader thread blocks on `InputStream.read()`. Run it off the main thread.
+- Writes are synchronous but fast. For safety, serialize writes through a single thread or an `Actor`/`Channel`.
+- Post decoded state to a `StateFlow` or `LiveData` for the UI layer to observe.
+- Don't close the socket from inside the reader thread — signal and let the owner close it.
+
+---
+
+## 7. Minimum viable feature set
+
+For a usable first version, implement just these six message handlers. This covers roughly 95% of what AI Life does.
+
+| Feature | Direction | Frame | Notes |
+|---------|-----------|-------|-------|
+| Identify device at connect | RX async | `(0x2B, 0x0A)` | Trust the first one you see; display model + serial + firmware in an "About" screen. |
+| Show battery | RX async | `(0x01, 0x08)` or `(0x01, 0x27)` | Subscribe to both — 0x08 is the initial snapshot, 0x27 is push. |
+| Force battery refresh | TX | `(0x01, 0x08)` with empty body | Only needed if the UI wants a manual refresh button. |
+| Show in-ear state | RX async | `(0x2B, 0x25)` | Also present as TLV 05 in battery frames. Either source works. |
+| Read current ANC mode | TX | `(0x2B, 0x2A)` with empty body | Call once after connect; then rely on push updates. |
+| Set ANC mode | TX | `(0x2B, 0x5D)` with `TLV 01 = [enabled, mode]` | See §5.4 for the four value combinations. |
+| ANC change notification | RX async | `(0x2B, 0x5E)` | Pushed both for your writes and for user long-press on the bud. Keep UI in sync. |
+
+---
+
+## 8. Known unknowns
+
+Things that need more reverse engineering before they can ship:
+
+- **`(0x2B, 0x2A)` second-byte submode matrix.** The first byte is the mode group, second byte is intensity. The seven observed combinations cover most of the UI but the full map isn't pinned down.
+- **`(0x2B, 0x5F)`.** Seen once near an ANC change. Likely a secondary sound attribute.
+- **`(0x2B, 0x37)` and `(0x01, 0x26)`.** Sent by the phone once each, no visible effect. Worth probing with the AI Life app open and a Wireshark capture running while toggling each setting.
+- **Firmware update protocol.** Not researched. Huawei firmware is signed so custom flashing isn't realistic anyway — skip this.
+- **Gesture config (`(0x01, 0x20)` / `(0x01, 0x1F)`).** Inherited from the 4i reference, not exercised in this capture. Likely works identically but verify before trusting it on FreeBuds 4.
+- **Voice language (`(0x0C, 0x01)` / `(0x0C, 0x02)`).** Same — 4i reference exists, not verified on FreeBuds 4.
+
+To investigate: pair the buds with AI Life, start `btsnoop` logging in developer options, toggle one setting, diff the resulting frames.
+
+---
+
+## 9. References
+
+- **MelianMiko — FreeBuds 4i protocol.** Closest documented relative. Most TLV conventions and the CRC algorithm come from here. <https://mmk.pw/en/posts/freebuds-4i-proto/>
+- **TheLastGimbus — FreeBuddy mbb-protocol notes.** Original source for the CRC16-XModem identification. <https://github.com/TheLastGimbus/FreeBuddy/blob/master/notes/mbb-protocol-wiki.md>
+- **Gadgetbridge issue #4241** (FreeBuds 5i). Confirms frame structure `5A [len] 00 [svc cmd] [TLV...] [CRC]`. <https://codeberg.org/Freeyourgadget/Gadgetbridge/issues/4241>
+- **OpenFreebuds.** Desktop/mobile open-source implementation for related devices; useful reference for command semantics. <https://github.com/melianmiko/OpenFreebuds>
+
+---
+
+## Appendix A — Quick reference card
+
+```
+FRAME   5A | LLLL | 00 | SS | CC | TLVs... | CRCCRC
+        magic len      svc  cmd            CRC16-XM
+
+LENGTH  length = 3 + len(TLV bytes)
+
+TLV     TT | LL | VV...
+        tag len   value
+
+SERVICES
+  0x01  SYSTEM   (battery, device info, language, gestures)
+  0x2B  DEVICE   (ANC, in-ear, per-device settings)
+
+ESSENTIAL COMMANDS
+  TX  (0x01,0x08)  Get battery               → reply (0x01,0x08)
+  RX  (0x01,0x27)  Battery push notification
+  RX  (0x2B,0x0A)  Device info (auto on connect)
+  RX  (0x2B,0x25)  In-ear state change
+  TX  (0x2B,0x2A)  Get ANC mode              → reply (0x2B,0x2A)
+  TX  (0x2B,0x5D)  Set sound control (ANC)   → echo  (0x2B,0x5E)
+  RX  (0x2B,0x5E)  Sound control changed
+
+BATTERY TLVs
+  01  uint8     aggregate %
+  02  3×uint8   [L%, R%, case%]
+  03  3×uint8   [L charging, R charging, case charging]  0/1
+  05  2×uint8   [L in-ear, R in-ear]                     0/1
+
+ANC ENCODING
+  TLV 01 value [enabled, mode]
+    0,0 = off       1,0 = noise cancellation
+    0,1 = awareness selected but off   1,1 = awareness on
+```
