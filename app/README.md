@@ -1,6 +1,6 @@
-# Huawei FreeBuds 4 — SPP Protocol Reference
+# Huawei FreeBuds 4 Pro — SPP Protocol Reference
 
-Reverse-engineered protocol notes for building an Android companion app for the Huawei FreeBuds 4 (model `T0022` / `T0022C`). Derived from a Wireshark capture of AI Life ↔ buds traffic, cross-referenced with MelianMiko's FreeBuds 4i research and Gadgetbridge issue #4241.
+Reverse-engineered protocol notes for building an Android companion app for the Huawei FreeBuds 4 Pro (model `T0022` / `T0022C`). Derived from a Wireshark capture of AI Life ↔ buds traffic, cross-referenced with MelianMiko's FreeBuds 4i research and Gadgetbridge issue #4241.
 
 This document is the spec. Every byte layout, TLV tag, and state transition below was observed on the wire.
 
@@ -77,25 +77,26 @@ Every frame — in both directions — has this layout:
 └────────────────────────────── magic 0x5A
 ```
 
-### Worked example — set ANC to "Awareness ON"
+### Worked example — set ANC to "Awareness"
 
 ```
-5A 00 09 00 2B 5D 01 02 01 01 XX XX
-             └─┬─┘ └─┬─┘ └─┬─┘ └───┬─────┘
-               │     │     │      └─ CRC16-XM
-               │     │     └──────── TLV value: enabled=1, mode=1 (awareness)
+5A 00 07 00 2B 04 01 02 02 00 CRC_HI CRC_LO
+             └─┬─┘ └─┬─┘ └─┬─┘
+               │     │     └──────── TLV value: mode=2 (awareness), intensity=0
                │     └────────────── TLV tag 01, length 02
-               └──────────────────── svc 2B, cmd 5D (SET_SOUND_CONTROL)
+               └──────────────────── svc 2B, cmd 04 (SET_ANC_MODE)
 ```
 
-Length field = 9: covers `00 | 2B 5D | 01 02 01 01` → 7 bytes of header + TLV, plus... wait. Let me be precise: length covers the constant `0x00` + svc + cmd + TLV bytes. That's `1 + 1 + 1 + 4 = 7`. But the observed frames in the capture use `len = tlv_payload_len + 3` which gives 7 here, not 9. **Double-check against a live capture before shipping** — the capture consistently shows length = TLV bytes + 3 (i.e. constant + svc + cmd).
+Length = 7: covers `00 | 2B 04 | 01 02 01 01` = const(1) + svc(1) + cmd(1) + TLV(4). **Canonical formula:** `length = 3 + len(TLV bytes)`.
 
-**Canonical formula:** `length = 3 + len(TLV bytes)`.
-
-For the example above: TLV bytes = `01 02 01 01` = 4 bytes, so `length = 7`. Corrected frame:
+### Worked example — ring left earbud
 
 ```
-5A 00 07 00 2B 5D 01 02 01 01 CRC_HI CRC_LO
+5A 00 07 00 2B 5D 01 02 00 00 CRC_HI CRC_LO
+             └─┬─┘ └─┬─┘ └─┬─┘
+               │     │     └──────── TLV value: side=0 (left), action=0 (ring)
+               │     └────────────── TLV tag 01, length 02
+               └──────────────────── svc 2B, cmd 5D (FIND_MY_BUDS)
 ```
 
 ---
@@ -219,7 +220,7 @@ The buds broadcast a device-info bundle under `(0x2B, 0x0A)` shortly after the R
 | 05 | ASCII string | Color / SKU code | `ZAAM` |
 | 06 | ASCII string | Firmware version | `1.0.0.x` |
 
-Model code `T0022/T0022C` is the canonical identifier for FreeBuds 4. Use it to reject frames from other Huawei audio devices if your app targets FreeBuds 4 specifically.
+Model code `T0022/T0022C` is the canonical identifier for FreeBuds 4 Pro. Use it to reject frames from other Huawei audio devices if your app targets FreeBuds 4 Pro specifically.
 
 ### 5.2 Battery status ⭐
 
@@ -290,30 +291,34 @@ Pushed by the buds whenever a bud is inserted or removed. No request needed.
 | 03 | uint8 | Reserved. Always `0x00` in capture. |
 | 04 | uint8 | Right bud in-ear. `0` = out, `1` = in. |
 
-**Note the indexing:** left is tag 01, right is tag 04 (not 02). Tags 02 and 03 appear reserved for a four-bud topology that FreeBuds 4 doesn't use.
+**Note the indexing:** left is tag 01, right is tag 04 (not 02). Tags 02 and 03 appear reserved for a four-bud topology that FreeBuds 4 Pro doesn't use.
 
 ### 5.4 Sound control (ANC / Awareness)
 
-FreeBuds 4 uses a different command pair than the 4i. Do not reuse `2B 04` from the 4i docs.
+FreeBuds 4 Pro uses a different command pair than the 4i for *reading* ANC state. However, writing ANC mode via `(0x2B, 0x04)` — the same command used on the 4i — works on FreeBuds 4 Pro. The earlier assumption that `0x04` was only an echo/ack was incorrect; it accepts writes with TLV Tag 01.
 
-#### Write — `(0x2B, 0x5D)`
+**Note:** `(0x2B, 0x5D)` is now used for **Find My Buds** ringing (see §5.6). Do not send ANC writes to `0x5D` — use `0x04` instead.
+
+#### Write — `(0x2B, 0x04)`
 
 | Tag | Type | Description |
 |-----|------|-------------|
-| 01 | 2 × uint8 | `[enabled, mode]`. `enabled`: 0 = off, 1 = on. `mode`: 0 = noise cancellation, 1 = awareness. |
+| 01 | 2 × uint8 | `[mode, intensity]`. `mode`: 0 = off, 1 = noise cancellation, 2 = awareness. `intensity`: NC sub-mode (0–3), ignored for off/awareness. |
 
-The four meaningful combinations:
+Mode values:
 
-| enabled | mode | Meaning |
-|---------|------|---------|
+| mode | intensity | Meaning |
+|------|-----------|---------|
 | 0 | 0 | Off (normal passthrough) |
-| 1 | 0 | Noise cancellation active |
-| 0 | 1 | Awareness mode selected but disabled |
-| 1 | 1 | Awareness active |
+| 1 | 0 | NC — General |
+| 1 | 1 | NC — Cozy |
+| 1 | 2 | NC — Ultra |
+| 1 | 3 | NC — Dynamic |
+| 2 | 0 | Awareness active |
 
 #### Notification / echo — `(0x2B, 0x5E)`
 
-Pushed whenever the sound-control state changes — either because you wrote `0x5D`, or because the user long-pressed on a bud.
+Pushed whenever the sound-control state changes — either because you wrote `0x04`, or because the user long-pressed on a bud.
 
 | Tag | Type | Description |
 |-----|------|-------------|
@@ -322,7 +327,7 @@ Pushed whenever the sound-control state changes — either because you wrote `0x
 
 #### Read — `(0x2B, 0x2A)`
 
-Returns the current mode. Response carries tag `01` with 2 bytes. First byte is the mode group (`0..3`), second byte is a submode/intensity. Combinations observed in the capture: `00 00`, `00 01`, `01 01`, `01 02`, `02 01`, `02 02`, `03 01`. Correlate with the AI Life UI to map the full matrix if you want per-intensity control.
+Returns the current mode. Response carries tag `01` with 2 bytes: `[intensity, mode]` — **note the byte order is swapped compared to the write command**. The second byte is the ANC mode (`0` = off, `1` = NC, `2` = awareness). The first byte is the NC intensity (`0` = dynamic, `1` = cozy, `2` = general, `3` = ultra; only meaningful when mode = NC). Observed combinations: `00 00` (off), `00 01` (NC general), `01 01` (NC cozy), `02 01` (NC ultra), `02 02` (awareness), `03 01` (NC dynamic).
 
 ### 5.5 Preferred ANC cycle list
 
@@ -338,7 +343,7 @@ Response TLVs (inferred from FreeBuds 4i docs, observed raw on the wire):
 | 02 | int8 | Selected cycle option for right bud. |
 | 03 | 10 × uint8 | Ordered list of mode IDs to cycle through. Values 1–10. |
 
-Cycle-option values (from 4i reference, may extend on FreeBuds 4):
+Cycle-option values (from 4i reference, may extend on FreeBuds 4 Pro):
 
 | Value | Meaning |
 |-------|---------|
@@ -351,11 +356,129 @@ Cycle-option values (from 4i reference, may extend on FreeBuds 4):
 
 Same TLV layout as the read. Note: writing tag 01 or tag 02 may copy to the other bud — the FreeBuds 4i docs flag this behavior and it likely applies here too. Test before assuming independent per-bud cycles.
 
-### 5.6 Other observed messages (lower confidence)
+### 5.6 Find My Buds (ringing)
+
+Triggers an audible alert on an individual earbud to help locate it. The write command shares the same `(0x2B, 0x5D)` service/command pair as sound control, but uses a different TLV encoding (side + action instead of enabled + mode). The notification channel `(0x2B, 0x5E)` is also shared — ringing status arrives in **Tag 02**, while sound-control status arrives in **Tag 01**.
+
+#### Write — `(0x2B, 0x5D)`
+
+| Tag | Type | Description |
+|-----|------|-------------|
+| 01 | 2 × uint8 | `[side, action]`. `side`: `0` = left, `1` = right. `action`: `0` = start ringing, `1` = stop ringing. |
+
+The four combinations:
+
+| side | action | Meaning |
+|------|--------|---------|
+| 0 | 0 | Ring left earbud |
+| 0 | 1 | Stop ringing left earbud |
+| 1 | 0 | Ring right earbud |
+| 1 | 1 | Stop ringing right earbud |
+
+Each side is controlled independently — ringing one earbud does not affect the other. To ring both, send two separate commands.
+
+#### Notification — `(0x2B, 0x5E)` Tag 02
+
+Pushed whenever ringing state changes on either bud, including as an echo of your write.
+
+| Tag | Type | Description |
+|-----|------|-------------|
+| 02 | 2 × uint8 | `[side, action]`. Same encoding as the write: `side` 0=left / 1=right, `action` 0=ringing / 1=stopped. |
+
+**Important:** The `(0x2B, 0x5E)` notification can carry **both** Tag 01 (sound control) and Tag 02 (ringing) in the same frame. Parse both tags independently.
+
+#### Kotlin decoder
+
+```kotlin
+data class RingingStatus(
+    val left: Boolean,   // true = currently ringing
+    val right: Boolean
+) {
+    companion object {
+        fun fromTlv(tlv: Tlv, current: RingingStatus): RingingStatus {
+            val data = tlv.value
+            if (data.size < 2) return current
+            val side = data[0].toInt()   // 0 = Left, 1 = Right
+            val action = data[1].toInt() // 0 = Ringing, 1 = Stopped
+            val isActive = action == 0
+            return if (side == 0) current.copy(left = isActive)
+                   else current.copy(right = isActive)
+        }
+    }
+}
+```
+
+**Note:** The ringing status is updated incrementally — each notification reports one side at a time, so you must merge it with the current state rather than replacing it.
+
+### 5.7 Playback state (double-tap gesture)
+
+#### Notification — `(0x2B, 0x36)`
+
+Pushed when the user double-taps either earbud stem to play or pause media. Both buds produce identical output — the notification does not distinguish which bud was tapped.
+
+| Tag | Type | Description |
+|-----|------|-------------|
+| 05 | 7 bytes | First 6 bytes are a constant device/session identifier (e.g. `77 1B 87 B9 75 A4`). Last byte is the playback state. |
+
+Playback state (last byte of Tag 05):
+
+| Value | Meaning |
+|-------|---------|
+| `0x01` | Stopped (idle, no active audio session) |
+| `0x03` | Paused (session active but paused) |
+| `0x09` | Playing (media resumed) |
+
+### 5.8 Audio source info
+
+#### Notification — `(0x2B, 0x31)`
+
+Pushed when the buds connect to an audio source or when playback state changes. Carries richer information than `(0x2B, 0x36)`, including the connected device name.
+
+| Tag | Type | Description |
+|-----|------|-------------|
+| 02 | uint8 | Unknown, observed `0x01`. |
+| 03 | uint8 | Unknown, observed `0x00`. |
+| 04 | 6 bytes | Device identifier (e.g. `77 1B 87 B9 75 A4`). Same ID as in `(0x2B, 0x36)` Tag 05. |
+| 05 | uint8 | Playback state: `0x01` = stopped, `0x03` = paused, `0x09` = playing. |
+| 06 | uint8 | Unknown, observed `0x01`. |
+| 07 | uint8 | Unknown, observed `0x00`. |
+| 08 | uint8 | Unknown, observed `0x01`. |
+| 09 | ASCII string | Connected device name (e.g. `"Adrian's S22"`). |
+| 0A | uint8 | Unknown, observed `0x01`. |
+
+### 5.9 Volume gesture
+
+#### Notification — `(0x2B, 0x4B)`
+
+Pushed when the user swipes up or down on either earbud stem to change volume. Both buds produce identical output — volume is a shared device setting, not per-bud.
+
+| Tag | Type | Description |
+|-----|------|-------------|
+| 01 | uint8 | Always `0x00`. Likely an ack/status byte. |
+| 02 | 3 × uint8 | `[direction, level_before, level_after]`. See below. |
+
+Tag 02 encoding:
+
+| Byte | Values | Description |
+|------|--------|-------------|
+| 0 | `0x00` / `0x01` | Direction: `0` = swipe up (volume increase), `1` = swipe down (volume decrease). |
+| 1 | uint8 | Volume level before the gesture (system media volume step). |
+| 2 | uint8 | Volume level after the gesture. |
+
+Observed examples:
+
+| Gesture | Tag 02 | Decoded |
+|---------|--------|---------|
+| Swipe up | `00 0A 0B` | Up, 10 → 11 |
+| Swipe down | `01 0B 0A` | Down, 11 → 10 |
+
+The volume step values correspond to Android system media volume levels. The range depends on the connected device's volume steps (typically 0–15).
+
+### 5.10 Other observed messages (lower confidence)
 
 | svc cmd | Seen | Notes |
 |---------|------|-------|
-| `(0x2B, 0x04)` | RX often | Always `TLV 02 = 0x00`. Looks like an echo/ack of the current ANC command. On the 4i this was the ANC *write* — on FreeBuds 4 the write moved to `0x5D`, so `0x04` may now be a status broadcast. |
+| `(0x2B, 0x04)` | TX / RX | **ANC write command** (confirmed). Send TLV Tag 01 = `[enabled, mode]` to set the ANC state. The buds reply with TLV Tag 02 = `0x00` on success, non-zero on rejection. Also used as the ANC write on the 4i — the original assumption that it moved to `0x5D` on FreeBuds 4 Pro was incorrect; `0x5D` is used for Find My Buds (§5.6). |
 | `(0x2B, 0x5F)` | RX rare | `TLV 01 = 0x00`. Appeared once near ANC state changes. Possibly a secondary sound attribute (wind noise? voice boost?). **Unidentified — don't ship code that depends on it.** |
 | `(0x2B, 0x37)` | TX once | Sent with `TLV 01 = 0x00`. One parameter, value 0. Unresearched. |
 | `(0x01, 0x26)` | TX once | `TLV 01 = 0x00`, `TLV 02 = 0x00`. Unresearched. |
@@ -495,7 +618,8 @@ fun buildFrame(service: Int, command: Int, tlvs: List<Tlv> = emptyList()): ByteA
 
 // Usage
 val getBattery = buildFrame(0x01, 0x08)
-val setAncAwareness = buildFrame(0x2B, 0x5D, listOf(Tlv(0x01, byteArrayOf(1, 1))))
+val setAncAwareness = buildFrame(0x2B, 0x04, listOf(Tlv(0x01, byteArrayOf(2, 0))))
+val ringLeftBud = buildFrame(0x2B, 0x5D, listOf(Tlv(0x01, byteArrayOf(0, 0))))
 socket.outputStream.write(setAncAwareness)
 ```
 
@@ -511,7 +635,19 @@ fun onFrame(frame: Frame) {
         }
         0x2B to 0x0A -> DeviceInfo.fromTlvs(frame.tlvs)?.let(::onDeviceInfo)
         0x2B to 0x25 -> InEarState.fromTlvs(frame.tlvs)?.let(::onInEarUpdate)
-        0x2B to 0x5E -> AncState.fromTlvs(frame.tlvs)?.let(::onAncUpdate)
+        0x2B to 0x5D, 0x2B to 0x5E, 0x2B to 0x2A, 0x2B to 0xAC -> {
+            SoundControl.fromTlvs(frame.tlvs)?.let(::onAncUpdate)
+            // Tag 02 carries Find My Buds ringing status (§5.6)
+            frame.tlvs.find { it.type == 0x02 }?.let { tlv ->
+                ringingStatus = RingingStatus.fromTlv(tlv, ringingStatus)
+            }
+        }
+        0x2B to 0x04 -> {
+            // ANC write ack — Tag 02 value 0x00 = success
+            val status = frame.tlvs.firstOrNull { it.type == 0x02 }
+                ?.value?.getOrNull(0)?.toInt()?.and(0xFF) ?: -1
+            if (status != 0) Log.w("FreeBuds", "ANC write rejected, status=$status")
+        }
         else -> Log.d("FreeBuds", "Unhandled frame: svc=${frame.service} cmd=${frame.command}")
     }
 }
@@ -537,8 +673,10 @@ For a usable first version, implement just these six message handlers. This cove
 | Force battery refresh | TX | `(0x01, 0x08)` with empty body | Only needed if the UI wants a manual refresh button. |
 | Show in-ear state | RX async | `(0x2B, 0x25)` | Also present as TLV 05 in battery frames. Either source works. |
 | Read current ANC mode | TX | `(0x2B, 0x2A)` with empty body | Call once after connect; then rely on push updates. |
-| Set ANC mode | TX | `(0x2B, 0x5D)` with `TLV 01 = [enabled, mode]` | See §5.4 for the four value combinations. |
+| Set ANC mode | TX | `(0x2B, 0x04)` with `TLV 01 = [enabled, mode]` | See §5.4 for the four value combinations. |
 | ANC change notification | RX async | `(0x2B, 0x5E)` | Pushed both for your writes and for user long-press on the bud. Keep UI in sync. |
+| Ring earbud | TX | `(0x2B, 0x5D)` with `TLV 01 = [side, action]` | See §5.6. Side: 0=left, 1=right. Action: 0=ring, 1=stop. |
+| Ring state notification | RX async | `(0x2B, 0x5E)` Tag 02 | Echoes ringing changes. Reports one side per notification. |
 
 ---
 
@@ -550,8 +688,8 @@ Things that need more reverse engineering before they can ship:
 - **`(0x2B, 0x5F)`.** Seen once near an ANC change. Likely a secondary sound attribute.
 - **`(0x2B, 0x37)` and `(0x01, 0x26)`.** Sent by the phone once each, no visible effect. Worth probing with the AI Life app open and a Wireshark capture running while toggling each setting.
 - **Firmware update protocol.** Not researched. Huawei firmware is signed so custom flashing isn't realistic anyway — skip this.
-- **Gesture config (`(0x01, 0x20)` / `(0x01, 0x1F)`).** Inherited from the 4i reference, not exercised in this capture. Likely works identically but verify before trusting it on FreeBuds 4.
-- **Voice language (`(0x0C, 0x01)` / `(0x0C, 0x02)`).** Same — 4i reference exists, not verified on FreeBuds 4.
+- **Gesture config (`(0x01, 0x20)` / `(0x01, 0x1F)`).** Inherited from the 4i reference, not exercised in this capture. Likely works identically but verify before trusting it on FreeBuds 4 Pro.
+- **Voice language (`(0x0C, 0x01)` / `(0x0C, 0x02)`).** Same — 4i reference exists, not verified on FreeBuds 4 Pro.
 
 To investigate: pair the buds with AI Life, start `btsnoop` logging in developer options, toggle one setting, diff the resulting frames.
 
@@ -587,8 +725,12 @@ ESSENTIAL COMMANDS
   RX  (0x2B,0x0A)  Device info (auto on connect)
   RX  (0x2B,0x25)  In-ear state change
   TX  (0x2B,0x2A)  Get ANC mode              → reply (0x2B,0x2A)
-  TX  (0x2B,0x5D)  Set sound control (ANC)   → echo  (0x2B,0x5E)
-  RX  (0x2B,0x5E)  Sound control changed
+  TX  (0x2B,0x04)  Set ANC mode              → ack   (0x2B,0x04)
+  TX  (0x2B,0x5D)  Ring earbud               → echo  (0x2B,0x5E)
+  RX  (0x2B,0x5E)  Sound control / ringing changed
+  RX  (0x2B,0x31)  Audio source info (device name + state)
+  RX  (0x2B,0x36)  Playback state (double-tap)
+  RX  (0x2B,0x4B)  Volume gesture (swipe up/down)
 
 BATTERY TLVs
   01  uint8     aggregate %
@@ -597,7 +739,14 @@ BATTERY TLVs
   05  2×uint8   [L in-ear, R in-ear]                     0/1
 
 ANC ENCODING
-  TLV 01 value [enabled, mode]
-    0,0 = off       1,0 = noise cancellation
-    0,1 = awareness selected but off   1,1 = awareness on
+  Write (0x2B,0x04) TLV 01 = [mode, intensity]
+  Read  (0x2B,0x2A) TLV 01 = [intensity, mode]   (bytes swapped!)
+    mode: 0=off  1=NC  2=awareness
+    intensity (NC only): 0=general  1=cozy  2=ultra  3=dynamic
+
+FIND MY BUDS (write via 0x2B,0x5D / notify via 0x2B,0x5E Tag 02)
+  TLV 01 value [side, action]  (write)
+  TLV 02 value [side, action]  (notification)
+    side:   0 = left, 1 = right
+    action: 0 = ring, 1 = stop
 ```

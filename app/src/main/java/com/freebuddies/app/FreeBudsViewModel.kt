@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.freebuddies.app.bluetooth.FreeBudsManager
 import com.freebuddies.app.protocol.AncMode
+import com.freebuddies.app.protocol.NcIntensity
 import com.freebuddies.app.protocol.RingingStatus
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -51,26 +52,25 @@ class FreeBudsViewModel : ViewModel() {
     fun findDevice(context: Context) {
         if (isConnecting) return
         isConnecting = true
-        android.util.Log.d("FreeBudsViewModel", "Finding devices...")
+        DebugLog.d(LogTag.APP, "Scanning for devices")
         try {
             val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
             val adapter = bluetoothManager.adapter ?: return
-            
-            // Look for paired devices first
+
             val pairedDevices = adapter.bondedDevices
-            android.util.Log.d("FreeBudsViewModel", "Found ${pairedDevices.size} paired devices")
+            DebugLog.d(LogTag.APP, "Found ${pairedDevices.size} paired devices")
             val buds = pairedDevices.find { it.name?.contains("FreeBuds", ignoreCase = true) == true }
-            
+
             if (buds != null) {
-                android.util.Log.d("FreeBudsViewModel", "Found target device: ${buds.name}")
+                DebugLog.d(LogTag.APP, "Found ${buds.name}")
                 _targetDevice.value = buds
                 connect(buds)
             } else {
-                android.util.Log.d("FreeBudsViewModel", "Target device not found in paired devices")
+                DebugLog.d(LogTag.APP, "Target device not found")
                 isConnecting = false
             }
         } catch (e: SecurityException) {
-            android.util.Log.e("FreeBudsViewModel", "Permission error finding devices", e)
+            DebugLog.e(LogTag.APP, "Permission error: ${e.message}", e)
             isConnecting = false
         }
     }
@@ -87,7 +87,7 @@ class FreeBudsViewModel : ViewModel() {
                     newManager.isConnected.first { it }
                 }
             } catch (e: Exception) {
-                android.util.Log.d("FreeBudsViewModel", "Connection timed out or failed: ${e.message}")
+                DebugLog.d(LogTag.APP, "Connection timeout: ${e.message}")
             } finally {
                 isConnecting = false
             }
@@ -96,8 +96,17 @@ class FreeBudsViewModel : ViewModel() {
         newManager.connect()
     }
     
-    fun setAncMode(mode: AncMode) {
-        _manager.value?.setAncMode(mode)
+    fun onResume(context: Context) {
+        val manager = _manager.value
+        if (manager != null && manager.isConnected.value) {
+            manager.refreshState()
+        } else if (!isConnecting) {
+            findDevice(context)
+        }
+    }
+
+    fun setAncMode(mode: AncMode, intensity: NcIntensity = NcIntensity.GENERAL) {
+        _manager.value?.setAncMode(mode, intensity)
     }
 
     fun setRinging(side: Int, active: Boolean) {

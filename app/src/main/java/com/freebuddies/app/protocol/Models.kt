@@ -108,68 +108,50 @@ data class RingingStatus(
 }
 
 /**
- * Sound control (ANC / Awareness) for (0x2B, 0x5D) and (0x2B, 0x5E).
+ * Sound control (ANC / Awareness) for (0x2B, 0x04) write and (0x2B, 0x2A) read.
+ *
+ * Read encoding (0x2A):  Tag 01 = [intensity, mode]
+ * Write encoding (0x04): Tag 01 = [mode, intensity]
  */
-enum class AncMode {
-    OFF, AWARENESS, NOISE_CANCELLING, UNKNOWN;
-
-    fun writeBytes(): Pair<Int, Int>? = when (this) {
-        OFF              -> 0x00 to 0x00
-        AWARENESS        -> 0x01 to 0x01
-        NOISE_CANCELLING -> 0x01 to 0x00
-        UNKNOWN          -> null
-    }
+enum class AncMode(val code: Int) {
+    OFF(0), NOISE_CANCELLING(1), AWARENESS(2), UNKNOWN(-1);
 
     companion object {
-        fun fromBroadcastBytes(b0: Int, b1: Int): AncMode = when {
-            // Stem-triggered (status byte 02/03, submode matches)
-            b0 == 0x00 && b1 == 0x00 -> OFF
-            b0 == 0x02 && b1 == 0x02 -> AWARENESS
-            b0 == 0x03 && b1 == 0x01 -> NOISE_CANCELLING
-
-            // App-triggered (first byte is "enabled", second byte is mode)
-            b0 == 0x01 && b1 == 0x00 -> NOISE_CANCELLING
-            b0 == 0x01 && b1 == 0x01 -> AWARENESS
-
-            else -> UNKNOWN
-        }
+        fun fromCode(code: Int): AncMode = entries.find { it.code == code } ?: UNKNOWN
     }
 }
 
-data class SoundControl(val mode: AncMode) {
+enum class NcIntensity(val code: Int, val label: String) {
+    GENERAL(0, "general"),
+    COZY(1, "cozy"),
+    ULTRA(2, "ultra"),
+    DYNAMIC(3, "dynamic");
+
+    companion object {
+        fun fromCode(code: Int): NcIntensity = entries.find { it.code == code } ?: GENERAL
+    }
+}
+
+data class SoundControl(val mode: AncMode, val ncIntensity: NcIntensity = NcIntensity.GENERAL) {
     companion object {
         fun fromTlvs(tlvs: List<Tlv>): SoundControl? {
-            // Log TLVs for debugging
-            android.util.Log.d("SoundControl", "Parsing TLVs: ${tlvs.joinToString { "T${it.type}=${it.value.joinToString("") { b -> "%02X".format(b) }}" }}")
-
-            // Pro 4 uses 2b:2a with Tag 01 containing two bytes [mode_group, intensity]
-            // and 2b:ac with Tag 01 (enabled) and Tag 02 (mode)
-            
-            // First check for 2-byte tag 01 (Broadcast style)
+            // Read encoding: Tag 01 = [intensity, mode]
             val data = tlvs.find { it.type == 0x01 }?.value?.takeIf { it.size >= 2 }
-            if (data != null) {
-                val b0 = data[0].toInt() and 0xFF
-                val b1 = data[1].toInt() and 0xFF
-                return SoundControl(AncMode.fromBroadcastBytes(b0, b1))
-            }
-
-            // Then check for discrete tags (AC style / Command style)
-            val t1 = tlvs.find { it.type == 0x01 }?.value?.firstOrNull()?.toInt()
-            val t2 = tlvs.find { it.type == 0x02 }?.value?.firstOrNull()?.toInt()
-            
-            if (t1 != null && t2 != null) {
-                // Heuristic: If enabled=1, map mode based on T2
-                val b0 = if (t1 != 0) (if (t2 == 1) 0x02 else 0x03) else 0x00
-                val b1 = if (t1 != 0) (if (t2 == 1) 0x02 else 0x01) else 0x00
-                return SoundControl(AncMode.fromBroadcastBytes(b0, b1))
-            }
-
-            return null
+                ?: return null
+            val intensity = data[0].toInt() and 0xFF
+            val modeCode = data[1].toInt() and 0xFF
+            return SoundControl(AncMode.fromCode(modeCode), NcIntensity.fromCode(intensity))
         }
-        fun toTlv(mode: AncMode): Tlv {
-            val bytes = mode.writeBytes()
-                ?: error("Cannot encode ${mode.name} — no known byte pair")
-            return Tlv(0x01, byteArrayOf(bytes.first.toByte(), bytes.second.toByte()))
+
+        fun toTlv(mode: AncMode, intensity: NcIntensity = NcIntensity.DYNAMIC): Tlv {
+            // Write encoding: Tag 01 = [mode, intensity]
+            val (modeCode, intensityCode) = when (mode) {
+                AncMode.OFF -> 0x00 to 0x00
+                AncMode.NOISE_CANCELLING -> 0x01 to intensity.code
+                AncMode.AWARENESS -> 0x02 to 0x00
+                AncMode.UNKNOWN -> error("Cannot encode UNKNOWN")
+            }
+            return Tlv(0x01, byteArrayOf(modeCode.toByte(), intensityCode.toByte()))
         }
     }
 }

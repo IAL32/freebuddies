@@ -13,6 +13,7 @@ val SurfaceVariant = Color(0xFF2D3A63)
 // Accent
 val AccentTeal = Color(0xFF5EE3D0)
 val AccentBlue = Color(0xFF4AA8FF)
+val AccentPurple = Color(0xFFCB8CFF)
 val Accent = Color(0xFF52C4E0)
 
 // Text

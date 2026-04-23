@@ -12,7 +12,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.freebuddies.app.FreeBudsViewModel
 import com.freebuddies.app.protocol.AncMode
+import com.freebuddies.app.protocol.NcIntensity
 import com.freebuddies.app.ui.components.AncModeSelector
+import com.freebuddies.app.ui.components.NcIntensitySelector
 import com.freebuddies.app.ui.components.BudBatteryIndicator
 import com.freebuddies.app.ui.components.FbSurface
 import com.freebuddies.app.ui.components.FindBudToggle
@@ -74,11 +76,22 @@ fun HomeScreen(vm: FreeBudsViewModel) {
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(bottom = 16.dp)
             )
+            val currentIntensity = soundControl?.ncIntensity ?: NcIntensity.GENERAL
+
             AncModeSelector(
                 selected = soundControl?.mode ?: AncMode.OFF,
-                onSelect = { vm.setAncMode(it) },
+                onSelect = { vm.setAncMode(it, currentIntensity) },
                 enabled = isConnected
             )
+
+            if ((soundControl?.mode ?: AncMode.OFF) == AncMode.NOISE_CANCELLING) {
+                Spacer(Modifier.height(8.dp))
+                NcIntensitySelector(
+                    selected = currentIntensity,
+                    onSelect = { vm.setAncMode(AncMode.NOISE_CANCELLING, it) },
+                    enabled = isConnected
+                )
+            }
         }
 
         FbSurface {

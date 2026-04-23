@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.freebuddies.app.protocol.AncMode
+import com.freebuddies.app.protocol.NcIntensity
 import com.freebuddies.app.ui.theme.*
 
 @Composable
@@ -150,6 +151,48 @@ fun AncModeSelector(
                     color = if (isSelected) Primary else OnDarkMuted,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     lineHeight = 12.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun NcIntensitySelector(
+    selected: NcIntensity,
+    onSelect: (NcIntensity) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(40.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        NcIntensity.entries.forEach { intensity ->
+            val isSelected = (selected == intensity) && enabled
+            val background = if (isSelected) {
+                Brush.linearGradient(listOf(AccentTeal, AccentBlue))
+            } else {
+                Brush.linearGradient(listOf(Color.Transparent, Color.Transparent))
+            }
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clip(CircleShape)
+                    .background(background)
+                    .clickable(enabled = enabled) { onSelect(intensity) },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = intensity.label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isSelected) Primary else OnDarkMuted
                 )
             }
         }

@@ -7,6 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -15,7 +16,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
@@ -27,6 +31,7 @@ import com.freebuddies.app.ui.components.ConnectionHeader
 import com.freebuddies.app.ui.components.DrawerItem
 import com.freebuddies.app.ui.components.LogoIcon
 import com.freebuddies.app.ui.screens.AboutScreen
+import com.freebuddies.app.ui.screens.DebugScreen
 import com.freebuddies.app.ui.screens.HomeScreen
 import com.freebuddies.app.ui.screens.SettingsScreen
 import com.freebuddies.app.ui.theme.*
@@ -48,6 +53,17 @@ fun FreebuddiesApp(vm: FreeBudsViewModel = viewModel()) {
 
     LaunchedEffect(Unit) {
         vm.startAutoReconnect(context)
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                vm.onResume(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     ModalNavigationDrawer(
@@ -106,6 +122,17 @@ fun FreebuddiesApp(vm: FreeBudsViewModel = viewModel()) {
                         }
                     )
                     DrawerItem(
+                        icon = Icons.Default.BugReport,
+                        label = "debug",
+                        isSelected = currentRoute == "debug",
+                        onClick = {
+                            scope.launch { drawerState.close() }
+                            if (currentRoute != "debug") {
+                                navController.navigate("debug")
+                            }
+                        }
+                    )
+                    DrawerItem(
                         icon = Icons.Default.Info,
                         label = "about",
                         isSelected = currentRoute == "about",
@@ -142,6 +169,18 @@ fun FreebuddiesApp(vm: FreeBudsViewModel = viewModel()) {
                             )
                         }
                     },
+                    actions = {
+                        if (!isConnected) {
+                            CircularProgressIndicator(
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .padding(end = 0.dp),
+                                strokeWidth = 2.dp,
+                                color = OnDarkFaint
+                            )
+                            Spacer(Modifier.width(16.dp))
+                        }
+                    },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = Color.Transparent,
                         titleContentColor = OnDark
@@ -162,6 +201,7 @@ fun FreebuddiesApp(vm: FreeBudsViewModel = viewModel()) {
                 ) {
                     composable("home") { HomeScreen(vm) }
                     composable("settings") { SettingsScreen(vm) }
+                    composable("debug") { DebugScreen() }
                     composable("about") { AboutScreen(vm) }
                 }
             }
