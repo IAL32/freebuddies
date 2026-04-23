@@ -314,20 +314,20 @@ Mode values:
 | 1 | 1 | NC — Cozy |
 | 1 | 2 | NC — Ultra |
 | 1 | 3 | NC — Dynamic |
-| 2 | 0 | Awareness active |
+| 2 | 1 | Awareness — Voice mode |
+| 2 | 2 | Awareness — Normal |
 
 #### Notification / echo — `(0x2B, 0x5E)`
 
-Pushed whenever the sound-control state changes — either because you wrote `0x04`, or because the user long-pressed on a bud.
+Pushed on ringing state changes (see §5.6). May also appear near ANC changes. The authoritative source for current ANC mode is `(0x2B, 0x2A)`, not this notification.
 
 | Tag | Type | Description |
 |-----|------|-------------|
-| 02 | 2 × uint8 | Same `[enabled, mode]` encoding as the write. |
-| 01 | uint8 | Short-form status ping (rare). Value `0x02` observed. |
+| 02 | 2 × uint8 | Ringing status `[side, action]` — see §5.6. |
 
 #### Read — `(0x2B, 0x2A)`
 
-Returns the current mode. Response carries tag `01` with 2 bytes: `[intensity, mode]` — **note the byte order is swapped compared to the write command**. The second byte is the ANC mode (`0` = off, `1` = NC, `2` = awareness). The first byte is the NC intensity (`0` = dynamic, `1` = cozy, `2` = general, `3` = ultra; only meaningful when mode = NC). Observed combinations: `00 00` (off), `00 01` (NC general), `01 01` (NC cozy), `02 01` (NC ultra), `02 02` (awareness), `03 01` (NC dynamic).
+Returns the current mode. Response carries tag `01` with 2 bytes: `[intensity, mode]` — **note the byte order is swapped compared to the write command**. The second byte is the ANC mode (`0` = off, `1` = NC, `2` = awareness). The first byte is the sub-mode: for NC it's the intensity (`0` = general, `1` = cozy, `2` = ultra, `3` = dynamic); for awareness it's the voice toggle (`1` = voice mode, `2` = normal). Observed combinations: `00 00` (off), `00 01` (NC general), `01 01` (NC cozy), `01 02` (awareness voice), `02 01` (NC ultra), `02 02` (awareness normal), `03 01` (NC dynamic).
 
 ### 5.5 Preferred ANC cycle list
 
@@ -635,8 +635,10 @@ fun onFrame(frame: Frame) {
         }
         0x2B to 0x0A -> DeviceInfo.fromTlvs(frame.tlvs)?.let(::onDeviceInfo)
         0x2B to 0x25 -> InEarState.fromTlvs(frame.tlvs)?.let(::onInEarUpdate)
-        0x2B to 0x5D, 0x2B to 0x5E, 0x2B to 0x2A, 0x2B to 0xAC -> {
+        0x2B to 0x2A -> {
             SoundControl.fromTlvs(frame.tlvs)?.let(::onAncUpdate)
+        }
+        0x2B to 0x5D, 0x2B to 0x5E -> {
             // Tag 02 carries Find My Buds ringing status (§5.6)
             frame.tlvs.find { it.type == 0x02 }?.let { tlv ->
                 ringingStatus = RingingStatus.fromTlv(tlv, ringingStatus)
@@ -673,7 +675,7 @@ For a usable first version, implement just these six message handlers. This cove
 | Force battery refresh | TX | `(0x01, 0x08)` with empty body | Only needed if the UI wants a manual refresh button. |
 | Show in-ear state | RX async | `(0x2B, 0x25)` | Also present as TLV 05 in battery frames. Either source works. |
 | Read current ANC mode | TX | `(0x2B, 0x2A)` with empty body | Call once after connect; then rely on push updates. |
-| Set ANC mode | TX | `(0x2B, 0x04)` with `TLV 01 = [enabled, mode]` | See §5.4 for the four value combinations. |
+| Set ANC mode | TX | `(0x2B, 0x04)` with `TLV 01 = [mode, intensity]` | See §5.4. Mode: 0=off, 1=NC, 2=awareness. Intensity: NC sub-mode or awareness voice toggle. |
 | ANC change notification | RX async | `(0x2B, 0x5E)` | Pushed both for your writes and for user long-press on the bud. Keep UI in sync. |
 | Ring earbud | TX | `(0x2B, 0x5D)` with `TLV 01 = [side, action]` | See §5.6. Side: 0=left, 1=right. Action: 0=ring, 1=stop. |
 | Ring state notification | RX async | `(0x2B, 0x5E)` Tag 02 | Echoes ringing changes. Reports one side per notification. |
@@ -684,8 +686,8 @@ For a usable first version, implement just these six message handlers. This cove
 
 Things that need more reverse engineering before they can ship:
 
-- **`(0x2B, 0x2A)` second-byte submode matrix.** The first byte is the mode group, second byte is intensity. The seven observed combinations cover most of the UI but the full map isn't pinned down.
 - **`(0x2B, 0x5F)`.** Seen once near an ANC change. Likely a secondary sound attribute.
+- **`(0x2B, 0xAC)`.** Pushed after `(0x2B, 0x2A)` on connect. Carries 9 discrete tags (T1–T9), mostly zeros. Not an ANC state update — do not use it to update sound control. Possibly ANC capability or configuration info.
 - **`(0x2B, 0x37)` and `(0x01, 0x26)`.** Sent by the phone once each, no visible effect. Worth probing with the AI Life app open and a Wireshark capture running while toggling each setting.
 - **Firmware update protocol.** Not researched. Huawei firmware is signed so custom flashing isn't realistic anyway — skip this.
 - **Gesture config (`(0x01, 0x20)` / `(0x01, 0x1F)`).** Inherited from the 4i reference, not exercised in this capture. Likely works identically but verify before trusting it on FreeBuds 4 Pro.
@@ -742,7 +744,8 @@ ANC ENCODING
   Write (0x2B,0x04) TLV 01 = [mode, intensity]
   Read  (0x2B,0x2A) TLV 01 = [intensity, mode]   (bytes swapped!)
     mode: 0=off  1=NC  2=awareness
-    intensity (NC only): 0=general  1=cozy  2=ultra  3=dynamic
+    NC intensity: 0=general  1=cozy  2=ultra  3=dynamic
+    Awareness:    1=voice mode  2=normal
 
 FIND MY BUDS (write via 0x2B,0x5D / notify via 0x2B,0x5E Tag 02)
   TLV 01 value [side, action]  (write)

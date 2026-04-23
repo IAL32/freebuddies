@@ -105,8 +105,8 @@ class FreeBudsViewModel : ViewModel() {
         }
     }
 
-    fun setAncMode(mode: AncMode, intensity: NcIntensity = NcIntensity.GENERAL) {
-        _manager.value?.setAncMode(mode, intensity)
+    fun setAncMode(mode: AncMode, intensity: NcIntensity = NcIntensity.GENERAL, voiceMode: Boolean = false) {
+        _manager.value?.setAncMode(mode, intensity, voiceMode)
     }
 
     fun setRinging(side: Int, active: Boolean) {

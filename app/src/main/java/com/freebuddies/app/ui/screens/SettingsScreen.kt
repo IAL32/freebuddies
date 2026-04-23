@@ -18,12 +18,16 @@ import com.freebuddies.app.ui.theme.OnDarkMuted
 
 @Composable
 fun SettingsScreen(vm: FreeBudsViewModel) {
+    val isConnected by vm.isConnected.collectAsStateWithLifecycle(initialValue = false)
     val deviceInfo by vm.deviceInfo.collectAsStateWithLifecycle(initialValue = null)
+    val batteryStatus by vm.batteryStatus.collectAsStateWithLifecycle(initialValue = null)
+    val inEarState by vm.inEarState.collectAsStateWithLifecycle(initialValue = null)
+    val soundControl by vm.soundControl.collectAsStateWithLifecycle(initialValue = null)
 
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         FbSurface {
             Text(
-                text = "device settings",
+                text = "device",
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(bottom = 16.dp)
             )
@@ -37,6 +41,49 @@ fun SettingsScreen(vm: FreeBudsViewModel) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = OnDarkMuted
             )
+        }
+
+        FbSurface {
+            Text(
+                text = "battery",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+            batteryStatus?.let { bat ->
+                SettingRow("left", "${bat.leftPercent}%" + if (bat.leftCharging) " (charging)" else "")
+                SettingRow("right", "${bat.rightPercent}%" + if (bat.rightCharging) " (charging)" else "")
+                SettingRow("case", "${bat.casePercent}%" + if (bat.caseCharging) " (charging)" else "")
+            } ?: Text(
+                "no battery data",
+                style = MaterialTheme.typography.bodyMedium,
+                color = OnDarkMuted
+            )
+        }
+
+        FbSurface {
+            Text(
+                text = "status",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+            SettingRow("connection", if (isConnected) "connected" else "disconnected")
+
+            val leftIn = inEarState?.leftInEar ?: batteryStatus?.leftInEar
+            val rightIn = inEarState?.rightInEar ?: batteryStatus?.rightInEar
+            if (leftIn != null && rightIn != null) {
+                SettingRow("left ear", if (leftIn) "in" else "out")
+                SettingRow("right ear", if (rightIn) "in" else "out")
+            }
+
+            soundControl?.let { sc ->
+                val ancLabel = when (sc.mode) {
+                    com.freebuddies.app.protocol.AncMode.NOISE_CANCELLING -> "NC (${sc.ncIntensity.label})"
+                    com.freebuddies.app.protocol.AncMode.AWARENESS -> "awareness" + if (sc.voiceMode) " (voice)" else ""
+                    com.freebuddies.app.protocol.AncMode.OFF -> "off"
+                    else -> "unknown"
+                }
+                SettingRow("noise control", ancLabel)
+            }
         }
     }
 }

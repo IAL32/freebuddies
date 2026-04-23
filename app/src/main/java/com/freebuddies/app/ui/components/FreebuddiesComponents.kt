@@ -25,7 +25,7 @@ fun FbSurface(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Surface(
-        modifier = modifier.clip(MaterialTheme.shapes.medium),
+        modifier = modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium),
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,

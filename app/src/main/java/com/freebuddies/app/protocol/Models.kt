@@ -132,7 +132,11 @@ enum class NcIntensity(val code: Int, val label: String) {
     }
 }
 
-data class SoundControl(val mode: AncMode, val ncIntensity: NcIntensity = NcIntensity.GENERAL) {
+data class SoundControl(
+    val mode: AncMode,
+    val ncIntensity: NcIntensity = NcIntensity.GENERAL,
+    val voiceMode: Boolean = false,
+) {
     companion object {
         fun fromTlvs(tlvs: List<Tlv>): SoundControl? {
             // Read encoding: Tag 01 = [intensity, mode]
@@ -140,15 +144,18 @@ data class SoundControl(val mode: AncMode, val ncIntensity: NcIntensity = NcInte
                 ?: return null
             val intensity = data[0].toInt() and 0xFF
             val modeCode = data[1].toInt() and 0xFF
-            return SoundControl(AncMode.fromCode(modeCode), NcIntensity.fromCode(intensity))
+            val mode = AncMode.fromCode(modeCode)
+            // For awareness: intensity 1 = voice mode, 2 = normal
+            val voiceMode = (mode == AncMode.AWARENESS && intensity == 1)
+            return SoundControl(mode, NcIntensity.fromCode(intensity), voiceMode)
         }
 
-        fun toTlv(mode: AncMode, intensity: NcIntensity = NcIntensity.DYNAMIC): Tlv {
+        fun toTlv(mode: AncMode, intensity: NcIntensity = NcIntensity.GENERAL, voiceMode: Boolean = false): Tlv {
             // Write encoding: Tag 01 = [mode, intensity]
             val (modeCode, intensityCode) = when (mode) {
                 AncMode.OFF -> 0x00 to 0x00
                 AncMode.NOISE_CANCELLING -> 0x01 to intensity.code
-                AncMode.AWARENESS -> 0x02 to 0x00
+                AncMode.AWARENESS -> 0x02 to (if (voiceMode) 0x01 else 0x02)
                 AncMode.UNKNOWN -> error("Cannot encode UNKNOWN")
             }
             return Tlv(0x01, byteArrayOf(modeCode.toByte(), intensityCode.toByte()))

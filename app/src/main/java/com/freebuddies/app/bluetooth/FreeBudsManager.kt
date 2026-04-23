@@ -103,7 +103,11 @@ class FreeBudsManager(private val device: BluetoothDevice) {
             0x2B to 0x2A -> {
                 SoundControl.fromTlvs(frame.tlvs)?.let {
                     _soundControl.value = it
-                    val label = if (it.mode == AncMode.NOISE_CANCELLING) "NC ${it.ncIntensity.label}" else "${it.mode}"
+                    val label = when (it.mode) {
+                        AncMode.NOISE_CANCELLING -> "NC ${it.ncIntensity.label}"
+                        AncMode.AWARENESS -> "Awareness" + if (it.voiceMode) " (voice)" else ""
+                        else -> "${it.mode}"
+                    }
                     DebugLog.d(LogTag.BUDS, "ANC $label")
                 }
             }
@@ -191,11 +195,15 @@ class FreeBudsManager(private val device: BluetoothDevice) {
         }
     }
 
-    fun setAncMode(mode: AncMode, intensity: NcIntensity = NcIntensity.GENERAL) {
-        val label = if (mode == AncMode.NOISE_CANCELLING) "NC ${intensity.label}" else "$mode"
+    fun setAncMode(mode: AncMode, intensity: NcIntensity = NcIntensity.GENERAL, voiceMode: Boolean = false) {
+        val label = when (mode) {
+            AncMode.NOISE_CANCELLING -> "NC ${intensity.label}"
+            AncMode.AWARENESS -> "Awareness" + if (voiceMode) " (voice)" else ""
+            else -> "$mode"
+        }
         DebugLog.d(LogTag.APP, "Set ANC $label")
         val tlv = try {
-            SoundControl.toTlv(mode, intensity)
+            SoundControl.toTlv(mode, intensity, voiceMode)
         } catch (e: Exception) {
             DebugLog.e(LogTag.APP, "Failed to encode ANC: ${e.message}")
             return

@@ -76,19 +76,31 @@ fun HomeScreen(vm: FreeBudsViewModel) {
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(bottom = 16.dp)
             )
+            val currentMode = soundControl?.mode ?: AncMode.OFF
             val currentIntensity = soundControl?.ncIntensity ?: NcIntensity.GENERAL
+            val currentVoice = soundControl?.voiceMode ?: false
 
             AncModeSelector(
-                selected = soundControl?.mode ?: AncMode.OFF,
-                onSelect = { vm.setAncMode(it, currentIntensity) },
+                selected = currentMode,
+                onSelect = { vm.setAncMode(it, currentIntensity, currentVoice) },
                 enabled = isConnected
             )
 
-            if ((soundControl?.mode ?: AncMode.OFF) == AncMode.NOISE_CANCELLING) {
+            if (currentMode == AncMode.NOISE_CANCELLING) {
                 Spacer(Modifier.height(8.dp))
                 NcIntensitySelector(
                     selected = currentIntensity,
                     onSelect = { vm.setAncMode(AncMode.NOISE_CANCELLING, it) },
+                    enabled = isConnected
+                )
+            }
+
+            if (currentMode == AncMode.AWARENESS) {
+                Spacer(Modifier.height(8.dp))
+                FindBudToggle(
+                    label = "voice mode",
+                    isRinging = currentVoice,
+                    onToggle = { vm.setAncMode(AncMode.AWARENESS, voiceMode = it) },
                     enabled = isConnected
                 )
             }

@@ -4,10 +4,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -15,8 +16,21 @@ import com.freebuddies.app.DebugLog
 import com.freebuddies.app.LogEntry
 import com.freebuddies.app.LogTag
 import com.freebuddies.app.ui.theme.*
-import java.text.SimpleDateFormat
-import java.util.*
+
+private val logStyle = TextStyle(
+    fontFamily = FontFamily.Monospace,
+    fontSize = 11.sp,
+    lineHeight = 14.sp,
+)
+
+private val tagColors = mapOf(
+    LogTag.APP to AccentBlue,
+    LogTag.BUDS to AccentTeal,
+    LogTag.TX to Warning,
+    LogTag.RX to AccentPurple,
+)
+
+private val dimWhite = OnDark.copy(alpha = 0.85f)
 
 @Composable
 fun DebugScreen() {
@@ -25,8 +39,8 @@ fun DebugScreen() {
 
     val isAtBottom by remember {
         derivedStateOf {
-            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            lastVisible >= (entries.size - 2).coerceAtLeast(0)
+            val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            last >= (entries.size - 2).coerceAtLeast(0)
         }
     }
 
@@ -44,45 +58,16 @@ fun DebugScreen() {
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         items(entries, key = { it.id }) { entry ->
-            DebugLogRow(entry)
+            DebugLogRow(entry.time, entry.tag, entry.message, tagColors[entry.tag] ?: OnDarkMuted)
         }
     }
 }
 
 @Composable
-private fun DebugLogRow(entry: LogEntry) {
-    val timeFormat = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
-    val time = remember(entry.timestamp) { timeFormat.format(Date(entry.timestamp)) }
-    val color = when (entry.tag) {
-        LogTag.APP -> AccentBlue
-        LogTag.BUDS -> AccentTeal
-        LogTag.TX -> Warning
-        LogTag.RX -> AccentPurple
-    }
-    val style = MaterialTheme.typography.bodySmall.copy(
-        fontFamily = FontFamily.Monospace,
-        fontSize = 11.sp,
-        lineHeight = 14.sp
-    )
-
+private fun DebugLogRow(time: String, tag: LogTag, message: String, color: Color) {
     Row(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = time,
-            style = style,
-            color = OnDarkFaint,
-            modifier = Modifier.width(58.dp)
-        )
-        Text(
-            text = "(${entry.tag.name.lowercase()})",
-            style = style,
-            color = color,
-            modifier = Modifier.width(48.dp)
-        )
-        Text(
-            text = entry.message,
-            style = style,
-            color = OnDark.copy(alpha = 0.85f),
-            modifier = Modifier.weight(1f)
-        )
+        Text(text = time, style = logStyle, color = OnDarkFaint, modifier = Modifier.width(58.dp))
+        Text(text = "(${tag.name.lowercase()})", style = logStyle, color = color, modifier = Modifier.width(48.dp))
+        Text(text = message, style = logStyle, color = dimWhite, modifier = Modifier.weight(1f))
     }
 }
