@@ -35,12 +35,17 @@ import com.freebuddies.app.ui.screens.DebugScreen
 import com.freebuddies.app.ui.screens.HomeScreen
 import com.freebuddies.app.ui.screens.SettingsScreen
 import com.freebuddies.app.ui.theme.*
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 
 @SuppressLint("MissingPermission")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FreebuddiesApp(vm: FreeBudsViewModel = viewModel()) {
+fun FreebuddiesApp(
+    vm: FreeBudsViewModel = viewModel(),
+    initialRoute: StateFlow<String?>? = null
+) {
     val navController = rememberNavController()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -53,6 +58,21 @@ fun FreebuddiesApp(vm: FreeBudsViewModel = viewModel()) {
 
     LaunchedEffect(Unit) {
         vm.startAutoReconnect(context)
+    }
+
+    // Handle deep link routes from QS tile long-press
+    if (initialRoute != null) {
+        LaunchedEffect(Unit) {
+            initialRoute.filterNotNull().collect { route ->
+                val target = when (route) {
+                    "noise_control", "find_buds" -> "home"
+                    else -> route
+                }
+                navController.navigate(target) {
+                    popUpTo("home") { inclusive = true }
+                }
+            }
+        }
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current

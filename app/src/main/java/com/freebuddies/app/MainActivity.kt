@@ -1,6 +1,7 @@
 package com.freebuddies.app
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -10,9 +11,14 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.freebuddies.app.ui.FreebuddiesApp
 import com.freebuddies.app.ui.theme.FreebuddiesTheme
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 class MainActivity : ComponentActivity() {
     private val vm by lazy { FreeBudsViewModel() }
+
+    private val _initialRoute = MutableStateFlow<String?>(null)
+    val initialRoute = _initialRoute.asStateFlow()
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -24,11 +30,23 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleIntent(intent)
         checkPermissions()
         setContent {
             FreebuddiesTheme {
-                FreebuddiesApp(vm)
+                FreebuddiesApp(vm, initialRoute)
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        intent?.getStringExtra("route")?.let { route ->
+            _initialRoute.value = route
         }
     }
 

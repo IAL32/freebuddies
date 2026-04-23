@@ -28,6 +28,7 @@ fun HomeScreen(vm: FreeBudsViewModel) {
     val soundControl by vm.soundControl.collectAsStateWithLifecycle(initialValue = null)
     val inEarState by vm.inEarState.collectAsStateWithLifecycle(initialValue = null)
     val ringingStatus by vm.ringingStatus.collectAsStateWithLifecycle(initialValue = null)
+    val preferredIntensity by vm.preferredNcIntensity.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier
@@ -82,7 +83,10 @@ fun HomeScreen(vm: FreeBudsViewModel) {
 
             AncModeSelector(
                 selected = currentMode,
-                onSelect = { vm.setAncMode(it, currentIntensity, currentVoice) },
+                onSelect = { mode ->
+                    val intensity = if (mode == AncMode.NOISE_CANCELLING) preferredIntensity else currentIntensity
+                    vm.setAncMode(mode, intensity, currentVoice)
+                },
                 enabled = isConnected
             )
 
