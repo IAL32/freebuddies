@@ -84,19 +84,55 @@ data class InEarState(
 }
 
 /**
+ * Find my buds state decoder for (0x2B, 0x5E).
+ */
+data class RingingStatus(
+    val left: Boolean,
+    val right: Boolean
+) {
+    companion object {
+        fun fromTlv(tlv: Tlv, current: RingingStatus): RingingStatus {
+            val data = tlv.value
+            if (data.size < 2) return current
+            val side = data[0].toInt() // 0 = Left, 1 = Right
+            val action = data[1].toInt() // 0 = Ringing, 1 = Stopped
+            val isActive = action == 0
+            
+            return if (side == 0) {
+                current.copy(left = isActive)
+            } else {
+                current.copy(right = isActive)
+            }
+        }
+    }
+}
+
+/**
  * Sound control (ANC / Awareness) for (0x2B, 0x5D) and (0x2B, 0x5E).
  */
-enum class AncMode(val rawBytes: Pair<Int, Int>?) {
-    OFF(0x00 to 0x00),
-    // Labels are provisional until empirically confirmed. Cycle ANC in AI Life
-    // and check which value arrives — then rename.
-    AWARENESS(0x02 to 0x02),
-    NOISE_CANCELLING(0x03 to 0x01),
-    UNKNOWN(null);
+enum class AncMode {
+    OFF, AWARENESS, NOISE_CANCELLING, UNKNOWN;
+
+    fun writeBytes(): Pair<Int, Int>? = when (this) {
+        OFF              -> 0x00 to 0x00
+        AWARENESS        -> 0x01 to 0x01
+        NOISE_CANCELLING -> 0x01 to 0x00
+        UNKNOWN          -> null
+    }
 
     companion object {
-        fun fromBytes(b0: Int, b1: Int): AncMode =
-            entries.firstOrNull { it.rawBytes == (b0 to b1) } ?: UNKNOWN
+        fun fromBroadcastBytes(b0: Int, b1: Int): AncMode = when {
+            // Stem-triggered (status byte 02/03, submode matches)
+            b0 == 0x00 && b1 == 0x00 -> OFF
+            b0 == 0x02 && b1 == 0x02 -> AWARENESS
+            b0 == 0x03 && b1 == 0x01 -> NOISE_CANCELLING
+
+            // App-triggered (first byte is "enabled", second byte is mode)
+            b0 == 0x01 && b1 == 0x00 -> NOISE_CANCELLING
+            b0 == 0x01 && b1 == 0x01 -> AWARENESS
+
+            else -> UNKNOWN
+        }
     }
 }
 
@@ -114,7 +150,7 @@ data class SoundControl(val mode: AncMode) {
             if (data != null) {
                 val b0 = data[0].toInt() and 0xFF
                 val b1 = data[1].toInt() and 0xFF
-                return SoundControl(AncMode.fromBytes(b0, b1))
+                return SoundControl(AncMode.fromBroadcastBytes(b0, b1))
             }
 
             // Then check for discrete tags (AC style / Command style)
@@ -125,13 +161,13 @@ data class SoundControl(val mode: AncMode) {
                 // Heuristic: If enabled=1, map mode based on T2
                 val b0 = if (t1 != 0) (if (t2 == 1) 0x02 else 0x03) else 0x00
                 val b1 = if (t1 != 0) (if (t2 == 1) 0x02 else 0x01) else 0x00
-                return SoundControl(AncMode.fromBytes(b0, b1))
+                return SoundControl(AncMode.fromBroadcastBytes(b0, b1))
             }
 
             return null
         }
         fun toTlv(mode: AncMode): Tlv {
-            val bytes = mode.rawBytes
+            val bytes = mode.writeBytes()
                 ?: error("Cannot encode ${mode.name} — no known byte pair")
             return Tlv(0x01, byteArrayOf(bytes.first.toByte(), bytes.second.toByte()))
         }

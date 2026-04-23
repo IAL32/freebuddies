@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.freebuddies.app.bluetooth.FreeBudsManager
 import com.freebuddies.app.protocol.AncMode
+import com.freebuddies.app.protocol.RingingStatus
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -23,16 +24,10 @@ class FreeBudsViewModel : ViewModel() {
     val soundControl = _manager.flatMapLatest { it?.soundControl ?: flowOf(null) }
     val deviceInfo = _manager.flatMapLatest { it?.deviceInfo ?: flowOf(null) }
     val inEarState = _manager.flatMapLatest { it?.inEarState ?: flowOf(null) }
+    val ringingStatus = _manager.flatMapLatest { it?.ringingStatus ?: flowOf(RingingStatus(false, false)) }
 
     private val _targetDevice = MutableStateFlow<BluetoothDevice?>(null)
     val targetDevice = _targetDevice.asStateFlow()
-
-    private val _isDarkMode = MutableStateFlow(false)
-    val isDarkMode = _isDarkMode.asStateFlow()
-
-    fun toggleDarkMode() {
-        _isDarkMode.value = !_isDarkMode.value
-    }
 
     private var autoReconnectJob: kotlinx.coroutines.Job? = null
     private var isConnecting = false
@@ -103,6 +98,10 @@ class FreeBudsViewModel : ViewModel() {
     
     fun setAncMode(mode: AncMode) {
         _manager.value?.setAncMode(mode)
+    }
+
+    fun setRinging(side: Int, active: Boolean) {
+        _manager.value?.setRinging(side, active)
     }
 
     override fun onCleared() {

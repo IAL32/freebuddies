@@ -1,0 +1,119 @@
+package com.freebuddies.app.ui.screens
+
+import android.annotation.SuppressLint
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.freebuddies.app.FreeBudsViewModel
+import com.freebuddies.app.protocol.AncMode
+import com.freebuddies.app.ui.components.AncModeSelector
+import com.freebuddies.app.ui.components.BudBatteryIndicator
+import com.freebuddies.app.ui.components.FbSurface
+import com.freebuddies.app.ui.components.FindBudToggle
+import com.freebuddies.app.ui.theme.*
+
+@SuppressLint("MissingPermission")
+@Composable
+fun HomeScreen(vm: FreeBudsViewModel) {
+    val isConnected by vm.isConnected.collectAsStateWithLifecycle(initialValue = false)
+    val batteryStatus by vm.batteryStatus.collectAsStateWithLifecycle(initialValue = null)
+    val soundControl by vm.soundControl.collectAsStateWithLifecycle(initialValue = null)
+    val inEarState by vm.inEarState.collectAsStateWithLifecycle(initialValue = null)
+    val ringingStatus by vm.ringingStatus.collectAsStateWithLifecycle(initialValue = null)
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        FbSurface {
+            Text(
+                text = "status",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceAround
+            ) {
+                val leftIn = inEarState?.leftInEar ?: batteryStatus?.leftInEar ?: false
+                val rightIn = inEarState?.rightInEar ?: batteryStatus?.rightInEar ?: false
+                
+                BudBatteryIndicator(
+                    percent = batteryStatus?.leftPercent ?: 0,
+                    charging = batteryStatus?.leftCharging ?: false,
+                    inEar = leftIn,
+                    label = "left"
+                )
+                BudBatteryIndicator(
+                    percent = batteryStatus?.casePercent ?: 0,
+                    charging = batteryStatus?.caseCharging ?: false,
+                    inEar = true, // Case is always "in"
+                    label = "case"
+                )
+                BudBatteryIndicator(
+                    percent = batteryStatus?.rightPercent ?: 0,
+                    charging = batteryStatus?.rightCharging ?: false,
+                    inEar = rightIn,
+                    label = "right"
+                )
+            }
+        }
+
+        FbSurface {
+            Text(
+                text = "noise control",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+            AncModeSelector(
+                selected = soundControl?.mode ?: AncMode.OFF,
+                onSelect = { vm.setAncMode(it) },
+                enabled = isConnected
+            )
+        }
+
+        FbSurface {
+            Text(
+                text = "find my buds",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+            
+            FindBudToggle(
+                label = "left bud",
+                isRinging = ringingStatus?.left ?: false,
+                onToggle = { vm.setRinging(side = 0, active = it) },
+                enabled = isConnected
+            )
+            
+            Spacer(Modifier.height(8.dp))
+
+            FindBudToggle(
+                label = "right bud",
+                isRinging = ringingStatus?.right ?: false,
+                onToggle = { vm.setRinging(side = 1, active = it) },
+                enabled = isConnected
+            )
+        }
+
+        if (!isConnected) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                Text(
+                    text = "disconnected",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = OnDarkMuted,
+                    modifier = Modifier.padding(bottom = 32.dp)
+                )
+            }
+        }
+    }
+}

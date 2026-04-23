@@ -31,6 +31,9 @@ class FreeBudsManager(private val device: BluetoothDevice) {
     private val _inEarState = MutableStateFlow<InEarState?>(null)
     val inEarState = _inEarState.asStateFlow()
 
+    private val _ringingStatus = MutableStateFlow(RingingStatus(left = false, right = false))
+    val ringingStatus = _ringingStatus.asStateFlow()
+
     private val frameReader = FrameReader { frame ->
         handleFrame(frame)
     }
@@ -92,20 +95,21 @@ class FreeBudsManager(private val device: BluetoothDevice) {
             }
             0x2B to 0x5D, 0x2B to 0x5E, 0x2B to 0x2A, 0x2B to 0xAC -> {
                 SoundControl.fromTlvs(frame.tlvs)?.let { _soundControl.value = it }
-            }
-            0x2B to 0xAC -> {
-                // Pro 4 specific status broadcast?
-                // T1=enabled, T2=mode?
-                val t1 = frame.tlvs.find { it.type == 1 }?.value?.firstOrNull()?.toInt()
-                val t2 = frame.tlvs.find { it.type == 2 }?.value?.firstOrNull()?.toInt()
-                if (t1 != null && t2 != null) {
-                    val b0 = if (t1 != 0) (if (t2 == 1) 0x02 else 0x03) else 0x00
-                    val b1 = if (t1 != 0) (if (t2 == 1) 0x02 else 0x01) else 0x00
-                    _soundControl.value = SoundControl(AncMode.fromBytes(b0, b1))
+                
+                // Also check for ringing status in 2B:5E Tag 02
+                frame.tlvs.find { it.type == 0x02 }?.let { tlv ->
+                    _ringingStatus.value = RingingStatus.fromTlv(tlv, _ringingStatus.value)
                 }
             }
             0x2B to 0x25 -> {
                 InEarState.fromTlvs(frame.tlvs)?.let { _inEarState.value = it }
+            }
+            0x2B to 0x04 -> {
+                val status = frame.tlvs.firstOrNull { it.type == 0x02 }
+                    ?.value?.getOrNull(0)?.toInt()?.and(0xFF) ?: -1
+                if (status != 0) {
+                    Log.w("FreeBudsManager", "ANC write rejected, status=$status")
+                }
             }
             else -> Log.d("FreeBudsManager", "Unhandled frame: $frameId")
         }
@@ -134,6 +138,16 @@ class FreeBudsManager(private val device: BluetoothDevice) {
         }
         val frame = Frame.build(0x2B, 0x04, listOf(tlv))
         Log.d("FreeBudsManager", "TX: ${frame.joinToString(" ") { "%02X".format(it) }}")
+        sendFrame(frame)
+    }
+
+    fun setRinging(side: Int, active: Boolean) {
+        Log.d("FreeBudsManager", "setRinging(side=$side, active=$active)")
+        val tlv = Tlv(0x01, byteArrayOf(
+            side.toByte(),
+            if (active) 0 else 1 // 0=Ring, 1=Stop
+        ))
+        val frame = Frame.build(0x2B, 0x5D, listOf(tlv))
         sendFrame(frame)
     }
 
