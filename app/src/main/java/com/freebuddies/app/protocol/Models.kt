@@ -165,9 +165,49 @@ enum class EqCategory { SPECIALIZED, OFFICIAL }
 data class CustomEqProfile(
     val name: String,
     val bands: List<Int>, // 10 values, each -6..6
+    val slotCode: Int = 0x64, // 0x64 = first custom slot, 0x65 = second, etc.
+)
+
+/**
+ * A custom EQ preset stored on the earbuds themselves.
+ * Parsed from (0x2B, 0x4A) response Tag 08 — 36 bytes per preset.
+ *
+ * Layout: [id(1)] [bandCount(1)] [bands(10)] [name(24, UTF-8, null-padded)]
+ */
+data class DeviceEqPreset(
+    val id: Int,
+    val bands: List<Int>, // signed byte per band, raw device scale (±60)
+    val name: String,
 ) {
-    /** Slot code for this profile (0x64 = first custom slot). */
-    val slotCode: Int get() = 0x64
+    /** Convert device-scale bands (±60) to UI-scale (±6). */
+    val uiBands: List<Int> get() = bands.map { it / 10 }
+
+    companion object {
+        private const val BLOCK_SIZE = 36
+
+        fun parseAll(data: ByteArray): List<DeviceEqPreset> {
+            if (data.isEmpty()) return emptyList()
+            val presets = mutableListOf<DeviceEqPreset>()
+            var offset = 0
+            while (offset + BLOCK_SIZE <= data.size) {
+                val id = data[offset].toInt() and 0xFF
+                val bandCount = data[offset + 1].toInt() and 0xFF
+                val bands = (0 until minOf(bandCount, 10)).map { i ->
+                    data[offset + 2 + i].toInt() // signed
+                }
+                val nameBytes = data.copyOfRange(offset + 12, offset + BLOCK_SIZE)
+                val nullIdx = nameBytes.indexOf(0)
+                val name = if (nullIdx >= 0) {
+                    nameBytes.copyOfRange(0, nullIdx).toString(Charsets.UTF_8)
+                } else {
+                    nameBytes.toString(Charsets.UTF_8)
+                }.trim()
+                presets.add(DeviceEqPreset(id, bands, name))
+                offset += BLOCK_SIZE
+            }
+            return presets
+        }
+    }
 }
 
 enum class EqPreset(val code: Int, val label: String, val category: EqCategory) {
@@ -211,6 +251,80 @@ data class PairedDevice(
             val connected = tlvs.find { it.type == 0x03 }?.value?.getOrNull(0)?.toInt() == 1
             val playback = tlvs.find { it.type == 0x05 }?.value?.getOrNull(0)?.toInt()?.and(0xFF) ?: 0x01
             return PairedDevice(name, address, connected, playback)
+        }
+    }
+}
+
+/**
+ * Tap gesture action for double-tap (0x01, 0x20/0x1F) and triple-tap (0x01, 0x26/0x25).
+ * Codes are signed bytes: -1 (0xFF) = off.
+ */
+enum class TapAction(val code: Int, val label: String) {
+    OFF(-1, "off"),
+    VOICE_ASSISTANT(0, "voice assistant"),
+    PLAY_PAUSE(1, "play / pause"),
+    NEXT_TRACK(2, "next track"),
+    PREVIOUS_TRACK(7, "previous track");
+
+    companion object {
+        fun fromCode(code: Int): TapAction = entries.find { it.code == code } ?: OFF
+    }
+}
+
+/**
+ * Per-side tap gesture config read from the buds.
+ */
+data class TapGestureConfig(
+    val left: TapAction = TapAction.OFF,
+    val right: TapAction = TapAction.OFF,
+) {
+    companion object {
+        fun fromTlvs(tlvs: List<Tlv>): TapGestureConfig {
+            val l = tlvs.find { it.type == 0x01 }?.value?.getOrNull(0)?.toInt() ?: -1
+            val r = tlvs.find { it.type == 0x02 }?.value?.getOrNull(0)?.toInt() ?: -1
+            return TapGestureConfig(TapAction.fromCode(l), TapAction.fromCode(r))
+        }
+    }
+}
+
+/**
+ * Long-tap ANC cycle for (0x2B, 0x17/0x16).
+ */
+enum class LongTapAction(val code: Int, val label: String) {
+    OFF(-1, "off"),
+    OFF_NC(3, "off ↔ NC"),
+    OFF_NC_AWARENESS(5, "off ↔ NC ↔ awareness"),
+    NC_AWARENESS(6, "NC ↔ awareness"),
+    OFF_AWARENESS(9, "off ↔ awareness");
+
+    companion object {
+        fun fromCode(code: Int): LongTapAction = entries.find { it.code == code } ?: OFF
+    }
+}
+
+data class LongTapConfig(
+    val left: LongTapAction = LongTapAction.OFF,
+    val right: LongTapAction = LongTapAction.OFF,
+) {
+    companion object {
+        fun fromTlvs(tlvs: List<Tlv>): LongTapConfig {
+            val l = tlvs.find { it.type == 0x01 }?.value?.getOrNull(0)?.toInt() ?: -1
+            val r = tlvs.find { it.type == 0x02 }?.value?.getOrNull(0)?.toInt() ?: -1
+            return LongTapConfig(LongTapAction.fromCode(l), LongTapAction.fromCode(r))
+        }
+    }
+}
+
+/**
+ * Swipe gesture for (0x2B, 0x1F/0x1E).
+ */
+data class SwipeConfig(
+    val enabled: Boolean = false,
+) {
+    companion object {
+        fun fromTlvs(tlvs: List<Tlv>): SwipeConfig {
+            val code = tlvs.find { it.type == 0x01 }?.value?.getOrNull(0)?.toInt() ?: -1
+            return SwipeConfig(enabled = code == 0)
         }
     }
 }
@@ -286,12 +400,20 @@ data class SoundControl(
             return SoundControl(mode, NcIntensity.fromCode(intensity), voiceMode)
         }
 
-        fun toTlv(mode: AncMode, intensity: NcIntensity = NcIntensity.GENERAL, voiceMode: Boolean = false): Tlv {
+        /**
+         * Encode ANC mode for (0x2B, 0x04) write.
+         *
+         * When [modeSwitch] is true the second byte is 0xFF (except for OFF which is always 0x00).
+         * The 0xFF signals a mode transition to the firmware, which triggers the voice announcement.
+         * When false, the actual intensity/level byte is sent — the firmware treats this as a
+         * level adjustment within the current mode (no voice).
+         */
+        fun toTlv(mode: AncMode, intensity: NcIntensity = NcIntensity.GENERAL, voiceMode: Boolean = false, modeSwitch: Boolean = false): Tlv {
             // Write encoding: Tag 01 = [mode, intensity]
             val (modeCode, intensityCode) = when (mode) {
                 AncMode.OFF -> 0x00 to 0x00
-                AncMode.NOISE_CANCELLING -> 0x01 to intensity.code
-                AncMode.AWARENESS -> 0x02 to (if (voiceMode) 0x01 else 0x02)
+                AncMode.NOISE_CANCELLING -> 0x01 to (if (modeSwitch) 0xFF else intensity.code)
+                AncMode.AWARENESS -> 0x02 to (if (modeSwitch) 0xFF else if (voiceMode) 0x01 else 0x02)
                 AncMode.UNKNOWN -> error("Cannot encode UNKNOWN")
             }
             return Tlv(0x01, byteArrayOf(modeCode.toByte(), intensityCode.toByte()))

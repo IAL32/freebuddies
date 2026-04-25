@@ -15,7 +15,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
-import com.freebuddies.app.protocol.CustomEqProfile
+import com.freebuddies.app.protocol.DeviceEqPreset
 import com.freebuddies.app.ui.theme.*
 import kotlin.math.roundToInt
 
@@ -60,8 +60,8 @@ fun EqPresetRow(
 }
 
 @Composable
-fun CustomProfileRow(
-    profile: CustomEqProfile,
+fun DevicePresetRow(
+    preset: DeviceEqPreset,
     isSelected: Boolean,
     enabled: Boolean,
     editMode: Boolean,
@@ -88,7 +88,7 @@ fun CustomProfileRow(
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(
-            text = profile.name,
+            text = preset.name,
             style = MaterialTheme.typography.bodyLarge,
             color = textColor,
             modifier = Modifier.weight(1f),

@@ -10,8 +10,6 @@ import com.freebuddies.app.bluetooth.FreeBudsManager
 import com.freebuddies.app.protocol.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
-import org.json.JSONArray
-import org.json.JSONObject
 
 @OptIn(ExperimentalCoroutinesApi::class)
 object FreeBudsConnectionManager {
@@ -87,8 +85,36 @@ object FreeBudsConnectionManager {
         _manager.flatMapLatest { it?.eqPresetCode ?: flowOf(-1) }
             .stateIn(scope, SharingStarted.Eagerly, -1)
 
-    private val _customEqProfiles = MutableStateFlow<List<CustomEqProfile>>(emptyList())
-    val customEqProfiles: StateFlow<List<CustomEqProfile>> = _customEqProfiles.asStateFlow()
+    val voiceLanguage: StateFlow<String?> =
+        _manager.flatMapLatest { it?.voiceLanguage ?: flowOf(null) }
+            .stateIn(scope, SharingStarted.Eagerly, null)
+
+    val voiceLanguages: StateFlow<List<String>> =
+        _manager.flatMapLatest { it?.voiceLanguages ?: flowOf(emptyList()) }
+            .stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+    val deviceEqPresets: StateFlow<List<DeviceEqPreset>> =
+        _manager.flatMapLatest { it?.deviceEqPresets ?: flowOf(emptyList()) }
+            .stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+    val doubleTap: StateFlow<TapGestureConfig?> =
+        _manager.flatMapLatest { it?.doubleTap ?: flowOf(null) }
+            .stateIn(scope, SharingStarted.Eagerly, null)
+
+    val tripleTap: StateFlow<TapGestureConfig?> =
+        _manager.flatMapLatest { it?.tripleTap ?: flowOf(null) }
+            .stateIn(scope, SharingStarted.Eagerly, null)
+
+    val longTap: StateFlow<LongTapConfig?> =
+        _manager.flatMapLatest { it?.longTap ?: flowOf(null) }
+            .stateIn(scope, SharingStarted.Eagerly, null)
+
+    val swipe: StateFlow<SwipeConfig?> =
+        _manager.flatMapLatest { it?.swipe ?: flowOf(null) }
+            .stateIn(scope, SharingStarted.Eagerly, null)
+
+    private val _ancVoiceAnnounce = MutableStateFlow(true)
+    val ancVoiceAnnounce: StateFlow<Boolean> = _ancVoiceAnnounce.asStateFlow()
 
     private val _targetDevice = MutableStateFlow<BluetoothDevice?>(null)
     val targetDevice: StateFlow<BluetoothDevice?> = _targetDevice.asStateFlow()
@@ -99,7 +125,7 @@ object FreeBudsConnectionManager {
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences("freebuddies", Context.MODE_PRIVATE)
         _preferredNcIntensity.value = NcIntensity.fromCode(prefs.getInt("nc_intensity", NcIntensity.GENERAL.code))
-        _customEqProfiles.value = loadCustomProfiles()
+        _ancVoiceAnnounce.value = prefs.getBoolean("anc_voice_announce", true)
     }
 
     fun setPreferredNcIntensity(intensity: NcIntensity) {
@@ -159,6 +185,7 @@ object FreeBudsConnectionManager {
         isConnecting = true
         _manager.value?.release()
         val newManager = FreeBudsManager(device)
+        newManager.ancVoiceAnnounce = _ancVoiceAnnounce.value
         _manager.value = newManager
 
         scope.launch {
@@ -228,6 +255,22 @@ object FreeBudsConnectionManager {
         _manager.value?.setShakeAction(action)
     }
 
+    fun refreshGestureConfig() { _manager.value?.refreshGestureConfig() }
+    fun setDoubleTap(side: Int, action: TapAction) { _manager.value?.setDoubleTap(side, action) }
+    fun setTripleTap(side: Int, action: TapAction) { _manager.value?.setTripleTap(side, action) }
+    fun setLongTap(side: Int, action: LongTapAction) { _manager.value?.setLongTap(side, action) }
+    fun setSwipe(enabled: Boolean) { _manager.value?.setSwipe(enabled) }
+
+    fun setAncVoiceAnnounce(enabled: Boolean) {
+        _ancVoiceAnnounce.value = enabled
+        _manager.value?.ancVoiceAnnounce = enabled
+        prefs.edit { putBoolean("anc_voice_announce", enabled) }
+    }
+
+    fun setVoiceLanguage(language: String) {
+        _manager.value?.setVoiceLanguage(language)
+    }
+
     fun setEqPreset(preset: EqPreset) {
         _manager.value?.setEqPreset(preset)
     }
@@ -236,52 +279,12 @@ object FreeBudsConnectionManager {
         _manager.value?.setCustomEqProfile(profile)
     }
 
-    fun saveCustomEqProfile(profile: CustomEqProfile) {
-        val list = _customEqProfiles.value.toMutableList()
-        val existingIndex = list.indexOfFirst { it.name == profile.name }
-        if (existingIndex >= 0) {
-            list[existingIndex] = profile
-        } else {
-            list.add(profile)
-        }
-        _customEqProfiles.value = list
-        persistCustomProfiles(list)
+    fun deleteDeviceEqPreset(preset: DeviceEqPreset) {
+        _manager.value?.deleteDeviceEqPreset(preset)
     }
 
-    fun deleteCustomEqProfile(profile: CustomEqProfile) {
-        val list = _customEqProfiles.value.filter { it.name != profile.name }
-        _customEqProfiles.value = list
-        persistCustomProfiles(list)
+    fun saveDeviceEqPreset(slotId: Int, name: String, bands: List<Int>) {
+        _manager.value?.saveDeviceEqPreset(slotId, name, bands)
     }
 
-    private fun loadCustomProfiles(): List<CustomEqProfile> {
-        val json = prefs.getString("custom_eq_profiles", null) ?: return emptyList()
-        return try {
-            val arr = JSONArray(json)
-            (0 until arr.length()).map { i ->
-                val obj = arr.getJSONObject(i)
-                val bandsArr = obj.getJSONArray("bands")
-                CustomEqProfile(
-                    name = obj.getString("name"),
-                    bands = (0 until bandsArr.length()).map { j -> bandsArr.getInt(j) }
-                )
-            }
-        } catch (e: Exception) {
-            DebugLog.e(LogTag.APP, "Failed to load custom EQ profiles: ${e.message}")
-            emptyList()
-        }
-    }
-
-    private fun persistCustomProfiles(profiles: List<CustomEqProfile>) {
-        val arr = JSONArray()
-        for (p in profiles) {
-            val obj = JSONObject()
-            obj.put("name", p.name)
-            val bands = JSONArray()
-            p.bands.forEach { bands.put(it) }
-            obj.put("bands", bands)
-            arr.put(obj)
-        }
-        prefs.edit { putString("custom_eq_profiles", arr.toString()) }
-    }
 }

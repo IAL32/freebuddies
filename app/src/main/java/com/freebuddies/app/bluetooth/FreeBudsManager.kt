@@ -66,6 +66,30 @@ class FreeBudsManager(private val device: BluetoothDevice) {
     private val _pairedDevices = MutableStateFlow<List<PairedDevice>>(emptyList())
     val pairedDevices = _pairedDevices.asStateFlow()
 
+    private val _voiceLanguage = MutableStateFlow<String?>(null)
+    val voiceLanguage = _voiceLanguage.asStateFlow()
+
+    private val _voiceLanguages = MutableStateFlow<List<String>>(emptyList())
+    val voiceLanguages = _voiceLanguages.asStateFlow()
+
+    private val _deviceEqPresets = MutableStateFlow<List<DeviceEqPreset>>(emptyList())
+    val deviceEqPresets = _deviceEqPresets.asStateFlow()
+
+    private val _doubleTap = MutableStateFlow<TapGestureConfig?>(null)
+    val doubleTap = _doubleTap.asStateFlow()
+
+    private val _tripleTap = MutableStateFlow<TapGestureConfig?>(null)
+    val tripleTap = _tripleTap.asStateFlow()
+
+    private val _longTap = MutableStateFlow<LongTapConfig?>(null)
+    val longTap = _longTap.asStateFlow()
+
+    private val _swipe = MutableStateFlow<SwipeConfig?>(null)
+    val swipe = _swipe.asStateFlow()
+
+    /** When true, send 0xFF intensity on mode switches so the buds play a voice announcement. */
+    var ancVoiceAnnounce: Boolean = true
+
     private val frameReader = FrameReader { frame ->
         handleFrame(frame)
     }
@@ -87,13 +111,13 @@ class FreeBudsManager(private val device: BluetoothDevice) {
                 sendFrame(Frame.build(0x01, 0x07, ping)) // Get system info
                 sendFrame(Frame.build(0x2B, 0x0A, ping)) // Get device info
                 sendFrame(Frame.build(0x2B, 0x2A, ping)) // Get ANC mode
-                sendFrame(Frame.build(0x2B, 0x4A, listOf(Tlv(0x02, byteArrayOf())))) // Get EQ state
+                sendFrame(Frame.build(0x2B, 0x4A, (1..8).map { Tlv(it, byteArrayOf()) })) // Get EQ state + device presets
                 sendFrame(Frame.build(0x2B, 0xB4, listOf(Tlv(0x01, byteArrayOf(0x08)), Tlv(0x02, byteArrayOf())))) // Get ear tips
                 sendFrame(Frame.build(0x2B, 0xA3, emptyList())) // Get low latency
                 sendFrame(Frame.build(0x2B, 0x11, listOf(Tlv(0x01, byteArrayOf())))) // Get wear detection
                 sendFrame(Frame.build(0x2B, 0xB4, listOf(Tlv(0x01, byteArrayOf(0x0B)), Tlv(0x02, byteArrayOf())))) // Get case tone + head gestures
-                sendFrame(Frame.build(0x2B, 0x6C, listOf(Tlv(0x02, byteArrayOf())))) // Get head control
                 sendFrame(Frame.build(0x2B, 0x31, listOf(Tlv(0x01, byteArrayOf())))) // Get paired devices
+                sendFrame(Frame.build(0x0C, 0x02, listOf(Tlv(0x01, byteArrayOf()), Tlv(0x02, byteArrayOf())))) // Get voice languages
 
                 startReader()
             } catch (e: IOException) {
@@ -213,6 +237,20 @@ class FreeBudsManager(private val device: BluetoothDevice) {
                     DebugLog.d(LogTag.BUDS, "Volume $dir $from → $to")
                 }
             }
+            0x2B to 0x03 -> {
+                // Legacy ANC mode change from physical button press
+                val modeCode = frame.tlvs.find { it.type == 0x01 }?.value?.getOrNull(0)?.toInt()?.and(0xFF) ?: -1
+                val mode = AncMode.fromCode(modeCode)
+                if (mode != AncMode.UNKNOWN) {
+                    _soundControl.value = _soundControl.value?.copy(mode = mode) ?: SoundControl(mode)
+                    DebugLog.d(LogTag.BUDS, "ANC legacy event: $mode")
+                }
+                if (ancVoiceAnnounce) {
+                    // Ack with (0x2B, 0x2A) + empty T01 to trigger voice announcement
+                    sendFrame(Frame.build(0x2B, 0x2A, listOf(Tlv(0x01, byteArrayOf()))))
+                    DebugLog.d(LogTag.TX, "ANC voice ack sent")
+                }
+            }
             0x2B to 0x04 -> {
                 val status = frame.tlvs.firstOrNull { it.type == 0x02 }
                     ?.value?.getOrNull(0)?.toInt()?.and(0xFF) ?: -1
@@ -270,7 +308,7 @@ class FreeBudsManager(private val device: BluetoothDevice) {
                 }
             }
             0x2B to 0x4A -> {
-                // EQ capabilities — Tag 02 = current preset id
+                // EQ capabilities — Tag 02 = current preset id, Tag 08 = device-stored custom presets
                 val currentCode = frame.tlvs.find { it.type == 0x02 }
                     ?.value?.getOrNull(0)?.toInt()?.and(0xFF)
                 if (currentCode != null) {
@@ -278,6 +316,51 @@ class FreeBudsManager(private val device: BluetoothDevice) {
                     val preset = EqPreset.fromCode(currentCode)
                     _eqPreset.value = preset
                     DebugLog.d(LogTag.BUDS, "EQ preset ${preset?.label ?: "custom(${"%02X".format(currentCode)})"}")
+                }
+                frame.tlvs.find { it.type == 0x08 }?.value?.let { data ->
+                    val presets = DeviceEqPreset.parseAll(data)
+                    _deviceEqPresets.value = presets
+                    presets.forEach { p ->
+                        DebugLog.d(LogTag.BUDS, "Device EQ preset id=${"%02X".format(p.id)} \"${p.name}\"")
+                    }
+                }
+            }
+            0x01 to 0x20 -> {
+                // Double-tap gesture config
+                _doubleTap.value = TapGestureConfig.fromTlvs(frame.tlvs)
+                DebugLog.d(LogTag.BUDS, "Double-tap L=${_doubleTap.value?.left?.label} R=${_doubleTap.value?.right?.label}")
+            }
+            0x01 to 0x26 -> {
+                // Triple-tap gesture config
+                _tripleTap.value = TapGestureConfig.fromTlvs(frame.tlvs)
+                DebugLog.d(LogTag.BUDS, "Triple-tap L=${_tripleTap.value?.left?.label} R=${_tripleTap.value?.right?.label}")
+            }
+            0x2B to 0x17 -> {
+                // Long-tap gesture config
+                _longTap.value = LongTapConfig.fromTlvs(frame.tlvs)
+                DebugLog.d(LogTag.BUDS, "Long-tap L=${_longTap.value?.left?.label} R=${_longTap.value?.right?.label}")
+            }
+            0x2B to 0x1F -> {
+                // Swipe gesture config
+                _swipe.value = SwipeConfig.fromTlvs(frame.tlvs)
+                DebugLog.d(LogTag.BUDS, "Swipe ${if (_swipe.value?.enabled == true) "on" else "off"}")
+            }
+            0x0C to 0x02 -> {
+                // Voice language list — T01 = current language, T03 = available languages (comma-separated)
+                frame.tlvs.find { it.type == 0x01 }?.value?.let { v ->
+                    if (v.isNotEmpty()) {
+                        val lang = v.toString(Charsets.UTF_8)
+                        _voiceLanguage.value = lang
+                        DebugLog.d(LogTag.BUDS, "Voice language: $lang")
+                    }
+                }
+                frame.tlvs.find { it.type == 0x03 }?.value?.let { v ->
+                    if (v.isNotEmpty()) {
+                        val raw = v.toString(Charsets.UTF_8)
+                        val languages = raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                        _voiceLanguages.value = languages
+                        DebugLog.d(LogTag.BUDS, "Available languages: $languages")
+                    }
                 }
             }
             else -> DebugLog.d(LogTag.RX, "Unhandled $frameId")
@@ -306,7 +389,6 @@ class FreeBudsManager(private val device: BluetoothDevice) {
             sendFrame(Frame.build(0x2B, 0xA3, emptyList()))
             sendFrame(Frame.build(0x2B, 0x11, listOf(Tlv(0x01, byteArrayOf()))))
             sendFrame(Frame.build(0x2B, 0xB4, listOf(Tlv(0x01, byteArrayOf(0x0B)), Tlv(0x02, byteArrayOf()))))
-            sendFrame(Frame.build(0x2B, 0x6C, listOf(Tlv(0x02, byteArrayOf()))))
         }
     }
 
@@ -383,6 +465,49 @@ class FreeBudsManager(private val device: BluetoothDevice) {
         )))
     }
 
+    fun refreshGestureConfig() {
+        val params = listOf(Tlv(0x01, byteArrayOf()), Tlv(0x02, byteArrayOf()))
+        sendFrame(Frame.build(0x2B, 0x6C, listOf(Tlv(0x02, byteArrayOf())))) // head control
+        sendFrame(Frame.build(0x01, 0x20, params)) // double-tap
+        sendFrame(Frame.build(0x01, 0x26, params)) // triple-tap
+        sendFrame(Frame.build(0x2B, 0x17, params)) // long-tap
+        sendFrame(Frame.build(0x2B, 0x1F, params)) // swipe
+    }
+
+    fun setDoubleTap(side: Int, action: TapAction) {
+        DebugLog.d(LogTag.APP, "Set double-tap ${if (side == 1) "left" else "right"} ${action.label}")
+        sendFrame(Frame.build(0x01, 0x1F, listOf(Tlv(side, byteArrayOf(action.code.toByte())))))
+        _doubleTap.value = _doubleTap.value?.let {
+            if (side == 1) it.copy(left = action) else it.copy(right = action)
+        }
+    }
+
+    fun setTripleTap(side: Int, action: TapAction) {
+        DebugLog.d(LogTag.APP, "Set triple-tap ${if (side == 1) "left" else "right"} ${action.label}")
+        sendFrame(Frame.build(0x01, 0x25, listOf(Tlv(side, byteArrayOf(action.code.toByte())))))
+        _tripleTap.value = _tripleTap.value?.let {
+            if (side == 1) it.copy(left = action) else it.copy(right = action)
+        }
+    }
+
+    fun setLongTap(side: Int, action: LongTapAction) {
+        DebugLog.d(LogTag.APP, "Set long-tap ${if (side == 1) "left" else "right"} ${action.label}")
+        sendFrame(Frame.build(0x2B, 0x16, listOf(Tlv(side, byteArrayOf(action.code.toByte())))))
+        _longTap.value = _longTap.value?.let {
+            if (side == 1) it.copy(left = action) else it.copy(right = action)
+        }
+    }
+
+    fun setSwipe(enabled: Boolean) {
+        val code = if (enabled) 0x00 else 0xFF.toByte().toInt()
+        DebugLog.d(LogTag.APP, "Set swipe ${if (enabled) "on" else "off"}")
+        sendFrame(Frame.build(0x2B, 0x1E, listOf(
+            Tlv(0x01, byteArrayOf(code.toByte())),
+            Tlv(0x02, byteArrayOf(code.toByte())),
+        )))
+        _swipe.value = SwipeConfig(enabled)
+    }
+
     fun setAncMode(mode: AncMode, intensity: NcIntensity = NcIntensity.GENERAL, voiceMode: Boolean = false) {
         val label = when (mode) {
             AncMode.NOISE_CANCELLING -> "NC ${intensity.label}"
@@ -390,13 +515,53 @@ class FreeBudsManager(private val device: BluetoothDevice) {
             else -> "$mode"
         }
         DebugLog.d(LogTag.APP, "Set ANC $label")
+
+        val currentMode = _soundControl.value?.mode
+        val isModeSwitch = currentMode == null || currentMode != mode
+
         val tlv = try {
-            SoundControl.toTlv(mode, intensity, voiceMode)
+            SoundControl.toTlv(mode, intensity, voiceMode, modeSwitch = isModeSwitch && ancVoiceAnnounce)
         } catch (e: Exception) {
             DebugLog.e(LogTag.APP, "Failed to encode ANC: ${e.message}")
             return
         }
         sendFrame(Frame.build(0x2B, 0x04, listOf(tlv)))
+    }
+
+    fun setVoiceLanguage(language: String) {
+        DebugLog.d(LogTag.APP, "Set voice language $language")
+        sendFrame(Frame.build(0x0C, 0x01, listOf(
+            Tlv(0x01, language.toByteArray(Charsets.UTF_8)),
+            Tlv(0x02, byteArrayOf(0x01)),
+        )))
+        _voiceLanguage.value = language
+    }
+
+    fun deleteDeviceEqPreset(preset: DeviceEqPreset) {
+        DebugLog.d(LogTag.APP, "Delete device EQ preset \"${preset.name}\" id=${"%02X".format(preset.id)}")
+        val curve = ByteArray(10) { i -> (preset.bands.getOrElse(i) { 0 }).toByte() }
+        val nameBytes = preset.name.toByteArray(Charsets.UTF_8)
+        sendFrame(Frame.build(0x2B, 0x49, listOf(
+            Tlv(0x01, byteArrayOf(preset.id.toByte())),
+            Tlv(0x02, byteArrayOf(0x0A)),
+            Tlv(0x03, curve),
+            Tlv(0x04, nameBytes),
+            Tlv(0x05, byteArrayOf(0x02)), // action = delete
+        )))
+        _deviceEqPresets.value = _deviceEqPresets.value.filter { it.id != preset.id }
+    }
+
+    fun saveDeviceEqPreset(slotId: Int, name: String, bands: List<Int>) {
+        DebugLog.d(LogTag.APP, "Save device EQ preset \"$name\" id=${"%02X".format(slotId)}")
+        val curve = ByteArray(10) { i -> ((bands.getOrElse(i) { 0 }) * 10).toByte() }
+        val nameBytes = name.toByteArray(Charsets.UTF_8)
+        sendFrame(Frame.build(0x2B, 0x49, listOf(
+            Tlv(0x01, byteArrayOf(slotId.toByte())),
+            Tlv(0x02, byteArrayOf(0x0A)),
+            Tlv(0x05, byteArrayOf(0x01)), // action = save & apply
+            Tlv(0x03, curve),
+            Tlv(0x04, nameBytes),
+        )))
     }
 
     fun setRinging(side: Int, active: Boolean) {

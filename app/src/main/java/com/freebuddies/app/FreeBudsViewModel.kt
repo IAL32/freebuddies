@@ -23,7 +23,14 @@ class FreeBudsViewModel : ViewModel() {
     val pairedDevices = FreeBudsConnectionManager.pairedDevices
     val eqPreset = FreeBudsConnectionManager.eqPreset
     val eqPresetCode = FreeBudsConnectionManager.eqPresetCode
-    val customEqProfiles = FreeBudsConnectionManager.customEqProfiles
+    val voiceLanguage = FreeBudsConnectionManager.voiceLanguage
+    val voiceLanguages = FreeBudsConnectionManager.voiceLanguages
+    val deviceEqPresets = FreeBudsConnectionManager.deviceEqPresets
+    val ancVoiceAnnounce = FreeBudsConnectionManager.ancVoiceAnnounce
+    val doubleTap = FreeBudsConnectionManager.doubleTap
+    val tripleTap = FreeBudsConnectionManager.tripleTap
+    val longTap = FreeBudsConnectionManager.longTap
+    val swipe = FreeBudsConnectionManager.swipe
 
     fun setPreferredNcIntensity(intensity: NcIntensity) = FreeBudsConnectionManager.setPreferredNcIntensity(intensity)
 
@@ -55,11 +62,13 @@ class FreeBudsViewModel : ViewModel() {
         FreeBudsConnectionManager.applyCustomEqProfile(profile)
     }
 
-    fun saveCustomEqProfile(profile: CustomEqProfile) {
-        FreeBudsConnectionManager.saveCustomEqProfile(profile)
-    }
-
-    fun deleteCustomEqProfile(profile: CustomEqProfile) {
-        FreeBudsConnectionManager.deleteCustomEqProfile(profile)
-    }
+    fun refreshGestureConfig() = FreeBudsConnectionManager.refreshGestureConfig()
+    fun setDoubleTap(side: Int, action: TapAction) = FreeBudsConnectionManager.setDoubleTap(side, action)
+    fun setTripleTap(side: Int, action: TapAction) = FreeBudsConnectionManager.setTripleTap(side, action)
+    fun setLongTap(side: Int, action: LongTapAction) = FreeBudsConnectionManager.setLongTap(side, action)
+    fun setSwipe(enabled: Boolean) = FreeBudsConnectionManager.setSwipe(enabled)
+    fun setVoiceLanguage(language: String) = FreeBudsConnectionManager.setVoiceLanguage(language)
+    fun setAncVoiceAnnounce(enabled: Boolean) = FreeBudsConnectionManager.setAncVoiceAnnounce(enabled)
+    fun deleteDeviceEqPreset(preset: DeviceEqPreset) = FreeBudsConnectionManager.deleteDeviceEqPreset(preset)
+    fun saveDeviceEqPreset(slotId: Int, name: String, bands: List<Int>) = FreeBudsConnectionManager.saveDeviceEqPreset(slotId, name, bands)
 }

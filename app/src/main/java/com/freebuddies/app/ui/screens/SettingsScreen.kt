@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.freebuddies.app.FreeBudsViewModel
 import com.freebuddies.app.ui.components.FbSurface
+import com.freebuddies.app.ui.components.FindBudToggle
 import com.freebuddies.app.ui.components.NcIntensitySelector
 import com.freebuddies.app.ui.components.SettingRow
 import com.freebuddies.app.ui.theme.*
@@ -25,6 +26,7 @@ private const val REDACTED = "--------"
 fun SettingsScreen(vm: FreeBudsViewModel) {
     val deviceInfo by vm.deviceInfo.collectAsStateWithLifecycle(initialValue = null)
     val preferredIntensity by vm.preferredNcIntensity.collectAsStateWithLifecycle()
+    val ancVoiceAnnounce by vm.ancVoiceAnnounce.collectAsStateWithLifecycle()
     var showValues by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().padding(Dimens.ScreenPadding), verticalArrangement = Arrangement.spacedBy(Dimens.SectionSpacing)) {
@@ -100,6 +102,26 @@ fun SettingsScreen(vm: FreeBudsViewModel) {
                 selected = preferredIntensity,
                 onSelect = { vm.setPreferredNcIntensity(it) },
                 enabled = true
+            )
+        }
+
+        FbSurface {
+            Text(
+                text = "anc voice announcement",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            Text(
+                text = "play a voice prompt on the buds when ANC mode changes via the physical gesture",
+                style = MaterialTheme.typography.bodySmall,
+                color = OnDarkMuted,
+                modifier = Modifier.padding(bottom = Dimens.TitleBottomPadding)
+            )
+            FindBudToggle(
+                label = "voice announcement",
+                isRinging = ancVoiceAnnounce,
+                onToggle = { vm.setAncVoiceAnnounce(it) },
+                enabled = true,
             )
         }
     }

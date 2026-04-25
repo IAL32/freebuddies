@@ -14,9 +14,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.freebuddies.app.FreeBudsViewModel
 import com.freebuddies.app.protocol.CustomEqProfile
+import com.freebuddies.app.protocol.DeviceEqPreset
 import com.freebuddies.app.protocol.EqCategory
 import com.freebuddies.app.protocol.EqPreset
-import com.freebuddies.app.ui.components.CustomProfileRow
+import com.freebuddies.app.ui.components.DevicePresetRow
 import com.freebuddies.app.ui.components.EqPresetRow
 import com.freebuddies.app.ui.components.FbSurface
 import com.freebuddies.app.ui.components.FindBudToggle
@@ -29,7 +30,7 @@ fun SoundScreen(vm: FreeBudsViewModel) {
     val lowLatency by vm.lowLatency.collectAsStateWithLifecycle(initialValue = null)
     val eqPreset by vm.eqPreset.collectAsStateWithLifecycle(initialValue = null)
     val eqPresetCode by vm.eqPresetCode.collectAsStateWithLifecycle(initialValue = -1)
-    val customProfiles by vm.customEqProfiles.collectAsStateWithLifecycle(initialValue = emptyList())
+    val devicePresets by vm.deviceEqPresets.collectAsStateWithLifecycle(initialValue = emptyList())
     var editMode by remember { mutableStateOf(false) }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -37,8 +38,6 @@ fun SoundScreen(vm: FreeBudsViewModel) {
     var editingProfile by remember { mutableStateOf<CustomEqProfile?>(null) }
     // Preset to restore if the user dismisses the editor without saving
     var presetBeforeEdit by remember { mutableStateOf<EqPreset?>(null) }
-
-    val isCustomActive = eqPreset == null && eqPresetCode >= 0x64
 
     Column(
         modifier = Modifier
@@ -116,7 +115,7 @@ fun SoundScreen(vm: FreeBudsViewModel) {
                 }
         }
 
-        // Custom EQ profiles
+        // Custom profiles (stored on the buds)
         FbSurface {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -127,7 +126,7 @@ fun SoundScreen(vm: FreeBudsViewModel) {
                     text = "custom profiles",
                     style = MaterialTheme.typography.titleMedium,
                 )
-                if (customProfiles.isNotEmpty()) {
+                if (devicePresets.isNotEmpty()) {
                     TextButton(onClick = { editMode = !editMode }) {
                         Text(
                             text = if (editMode) "done" else "edit",
@@ -140,34 +139,37 @@ fun SoundScreen(vm: FreeBudsViewModel) {
 
             Spacer(Modifier.height(4.dp))
 
-            if (customProfiles.isEmpty()) {
+            if (devicePresets.isEmpty()) {
                 Text(
                     text = "no custom profiles yet",
                     style = MaterialTheme.typography.bodyMedium,
                     color = OnDarkMuted,
                     modifier = Modifier.padding(vertical = 8.dp),
                 )
-            } else {
-                customProfiles.forEachIndexed { index, profile ->
-                    if (index > 0) Spacer(Modifier.height(Dimens.RowSpacing))
-                    CustomProfileRow(
-                        profile = profile,
-                        isSelected = isCustomActive && customProfiles.indexOf(profile) == 0,
-                        enabled = isConnected,
-                        editMode = editMode,
-                        onClick = { vm.applyCustomEqProfile(profile) },
-                        onEdit = {
-                            presetBeforeEdit = eqPreset
-                            editingProfile = profile
-                            showEqEditor = true
-                        },
-                        onDelete = {
-                            if (isCustomActive) vm.setEqPreset(EqPreset.DEFAULT)
-                            vm.deleteCustomEqProfile(profile)
-                            if (customProfiles.size <= 1) editMode = false
-                        },
-                    )
-                }
+            }
+
+            devicePresets.forEachIndexed { index, preset ->
+                if (index > 0) Spacer(Modifier.height(Dimens.RowSpacing))
+                val isSelected = eqPresetCode == preset.id
+                DevicePresetRow(
+                    preset = preset,
+                    isSelected = isSelected,
+                    enabled = isConnected,
+                    editMode = editMode,
+                    onClick = {
+                        vm.applyCustomEqProfile(CustomEqProfile(preset.name, preset.uiBands, preset.id))
+                    },
+                    onEdit = {
+                        presetBeforeEdit = eqPreset
+                        editingProfile = CustomEqProfile(preset.name, preset.uiBands, preset.id)
+                        showEqEditor = true
+                    },
+                    onDelete = {
+                        if (isSelected) vm.setEqPreset(EqPreset.DEFAULT)
+                        vm.deleteDeviceEqPreset(preset)
+                        if (devicePresets.size <= 1) editMode = false
+                    },
+                )
             }
 
             Spacer(Modifier.height(8.dp))
@@ -221,10 +223,13 @@ fun SoundScreen(vm: FreeBudsViewModel) {
             containerColor = Surface,
             dragHandle = { BottomSheetDefaults.DragHandle(color = OnDarkFaint) },
         ) {
+            val usedSlots = devicePresets.map { it.id }.toSet()
+            val editSlot = editingProfile?.slotCode
+                ?: (0x64..0x66).first { it !in usedSlots }
             val defaultName = if (editingProfile != null) {
                 editingProfile!!.name
             } else {
-                "My sound effect ${customProfiles.size + 1}"
+                "My sound effect ${devicePresets.size + 1}"
             }
             val defaultBands = editingProfile?.bands ?: List(EQ_BANDS.size) { 0 }
 
@@ -236,13 +241,11 @@ fun SoundScreen(vm: FreeBudsViewModel) {
                     restorePreviousPreset()
                 },
                 onPreview = { name, bands ->
-                    vm.applyCustomEqProfile(CustomEqProfile(name, bands))
+                    vm.applyCustomEqProfile(CustomEqProfile(name, bands, editSlot))
                 },
                 onSave = { name, bands ->
                     presetBeforeEdit = null
-                    val profile = CustomEqProfile(name, bands)
-                    vm.saveCustomEqProfile(profile)
-                    vm.applyCustomEqProfile(profile)
+                    vm.saveDeviceEqPreset(editSlot, name, bands)
                     showEqEditor = false
                 },
             )
