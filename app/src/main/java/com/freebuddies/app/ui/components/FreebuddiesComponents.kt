@@ -124,7 +124,7 @@ fun AncModeSelector(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(56.dp)
+            .height(Dimens.RowHeight)
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.surfaceVariant),
         verticalAlignment = Alignment.CenterVertically
@@ -168,7 +168,7 @@ fun NcIntensitySelector(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(40.dp)
+            .height(36.dp)
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.surfaceVariant),
         verticalAlignment = Alignment.CenterVertically
