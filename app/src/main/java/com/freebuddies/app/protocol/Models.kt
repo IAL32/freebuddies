@@ -159,6 +159,49 @@ enum class EqPreset(val code: Int, val label: String, val category: EqCategory) 
 }
 
 /**
+ * Paired device info from (0x2B, 0x31) audio source notification.
+ */
+data class PairedDevice(
+    val name: String,
+    val address: ByteArray,
+    val connected: Boolean,
+    val playbackState: Int, // 0x01=stopped, 0x03=paused, 0x09=playing
+) {
+    val isPlaying: Boolean get() = playbackState == 0x09
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is PairedDevice) return false
+        return address.contentEquals(other.address)
+    }
+
+    override fun hashCode(): Int = address.contentHashCode()
+
+    companion object {
+        fun fromTlvs(tlvs: List<Tlv>): PairedDevice? {
+            val name = tlvs.find { it.type == 0x09 }?.value?.toString(Charsets.UTF_8) ?: return null
+            val address = tlvs.find { it.type == 0x04 }?.value?.takeIf { it.size == 6 } ?: return null
+            val connected = tlvs.find { it.type == 0x03 }?.value?.getOrNull(0)?.toInt() == 1
+            val playback = tlvs.find { it.type == 0x05 }?.value?.getOrNull(0)?.toInt()?.and(0xFF) ?: 0x01
+            return PairedDevice(name, address, connected, playback)
+        }
+    }
+}
+
+/**
+ * Head gesture action for (0x2B, 0xB4) T01=0x0B, Tags 03/04.
+ */
+enum class HeadGestureAction(val code: Int, val label: String) {
+    NONE(0x00, "none"),
+    ANSWER_CALL(0x01, "answer call"),
+    REJECT_CALL(0x02, "reject call");
+
+    companion object {
+        fun fromCode(code: Int): HeadGestureAction? = entries.find { it.code == code }
+    }
+}
+
+/**
  * Ear tip type for (0x2B, 0xB4).
  *
  * Read:  Tag 01 = 0x08, Tag 02 = (empty)  → response Tag 01 = 0x08, Tag 02 = [type]

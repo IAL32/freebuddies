@@ -45,6 +45,27 @@ class FreeBudsManager(private val device: BluetoothDevice) {
     private val _eqPresetCode = MutableStateFlow(-1)
     val eqPresetCode = _eqPresetCode.asStateFlow()
 
+    private val _lowLatency = MutableStateFlow<Boolean?>(null)
+    val lowLatency = _lowLatency.asStateFlow()
+
+    private val _wearDetection = MutableStateFlow<Boolean?>(null)
+    val wearDetection = _wearDetection.asStateFlow()
+
+    private val _caseTone = MutableStateFlow<Boolean?>(null)
+    val caseTone = _caseTone.asStateFlow()
+
+    private val _headControl = MutableStateFlow<Boolean?>(null)
+    val headControl = _headControl.asStateFlow()
+
+    private val _nodAction = MutableStateFlow<HeadGestureAction?>(null)
+    val nodAction = _nodAction.asStateFlow()
+
+    private val _shakeAction = MutableStateFlow<HeadGestureAction?>(null)
+    val shakeAction = _shakeAction.asStateFlow()
+
+    private val _pairedDevices = MutableStateFlow<List<PairedDevice>>(emptyList())
+    val pairedDevices = _pairedDevices.asStateFlow()
+
     private val frameReader = FrameReader { frame ->
         handleFrame(frame)
     }
@@ -66,6 +87,11 @@ class FreeBudsManager(private val device: BluetoothDevice) {
                 sendFrame(Frame.build(0x2B, 0x2A, ping)) // Get ANC mode
                 sendFrame(Frame.build(0x2B, 0x4A, listOf(Tlv(0x02, byteArrayOf())))) // Get EQ state
                 sendFrame(Frame.build(0x2B, 0xB4, listOf(Tlv(0x01, byteArrayOf(0x08)), Tlv(0x02, byteArrayOf())))) // Get ear tips
+                sendFrame(Frame.build(0x2B, 0xA3, emptyList())) // Get low latency
+                sendFrame(Frame.build(0x2B, 0x11, listOf(Tlv(0x01, byteArrayOf())))) // Get wear detection
+                sendFrame(Frame.build(0x2B, 0xB4, listOf(Tlv(0x01, byteArrayOf(0x0B)), Tlv(0x02, byteArrayOf())))) // Get case tone + head gestures
+                sendFrame(Frame.build(0x2B, 0x6C, listOf(Tlv(0x02, byteArrayOf())))) // Get head control
+                sendFrame(Frame.build(0x2B, 0x31, listOf(Tlv(0x01, byteArrayOf())))) // Get paired devices
 
                 startReader()
             } catch (e: IOException) {
@@ -142,17 +168,16 @@ class FreeBudsManager(private val device: BluetoothDevice) {
                 }
             }
             0x2B to 0x31 -> {
-                val name = frame.tlvs.find { it.type == 0x09 }?.value
-                    ?.toString(Charsets.US_ASCII) ?: ""
-                val state = frame.tlvs.find { it.type == 0x05 }?.value
-                    ?.firstOrNull()?.toInt()?.and(0xFF)
-                val label = when (state) {
-                    0x01 -> "stopped"
-                    0x03 -> "paused"
-                    0x09 -> "playing"
-                    else -> state?.let { "0x${"%02X".format(it)}" } ?: "?"
+                PairedDevice.fromTlvs(frame.tlvs)?.let { device ->
+                    val current = _pairedDevices.value.toMutableList()
+                    val idx = current.indexOfFirst { it.address.contentEquals(device.address) }
+                    if (idx >= 0) current[idx] = device else current.add(device)
+                    _pairedDevices.value = current
+                    val state = when (device.playbackState) {
+                        0x09 -> "playing"; 0x03 -> "paused"; else -> "stopped"
+                    }
+                    DebugLog.d(LogTag.BUDS, "Audio source \"${device.name}\" ${if (device.connected) "connected" else "disconnected"} $state")
                 }
-                DebugLog.d(LogTag.BUDS, "Audio source \"$name\" $label")
             }
             0x2B to 0x36 -> {
                 val data = frame.tlvs.find { it.type == 0x05 }?.value
@@ -184,15 +209,52 @@ class FreeBudsManager(private val device: BluetoothDevice) {
                 }
             }
             0x2B to 0xB4 -> {
-                // Ear tips — T01=0x08 (sub-cmd), T02 = tip type
                 val subCmd = frame.tlvs.find { it.type == 0x01 }?.value?.getOrNull(0)?.toInt()?.and(0xFF)
-                val tipCode = frame.tlvs.find { it.type == 0x02 }?.value?.getOrNull(0)?.toInt()?.and(0xFF)
-                if (subCmd == 0x08 && tipCode != null) {
-                    val tip = EarTipType.fromCode(tipCode)
-                    if (tip != null) {
-                        _earTipType.value = tip
-                        DebugLog.d(LogTag.BUDS, "Ear tips ${tip.label}")
+                when (subCmd) {
+                    0x08 -> {
+                        // Ear tips — T02 = tip type
+                        val tipCode = frame.tlvs.find { it.type == 0x02 }?.value?.getOrNull(0)?.toInt()?.and(0xFF)
+                        if (tipCode != null) {
+                            EarTipType.fromCode(tipCode)?.let {
+                                _earTipType.value = it
+                                DebugLog.d(LogTag.BUDS, "Ear tips ${it.label}")
+                            }
+                        }
                     }
+                    0x0B -> {
+                        // Case tone (T02), nod action (T03), shake action (T04)
+                        frame.tlvs.find { it.type == 0x02 }?.value?.getOrNull(0)?.let { b ->
+                            _caseTone.value = b.toInt() == 1
+                            DebugLog.d(LogTag.BUDS, "Case tone ${if (b.toInt() == 1) "on" else "off"}")
+                        }
+                        frame.tlvs.find { it.type == 0x03 }?.value?.getOrNull(0)?.let { b ->
+                            HeadGestureAction.fromCode(b.toInt() and 0xFF)?.let { _nodAction.value = it }
+                        }
+                        frame.tlvs.find { it.type == 0x04 }?.value?.getOrNull(0)?.let { b ->
+                            HeadGestureAction.fromCode(b.toInt() and 0xFF)?.let { _shakeAction.value = it }
+                        }
+                    }
+                }
+            }
+            0x2B to 0xA3 -> {
+                // Low audio latency — T02 = latency on/off
+                frame.tlvs.find { it.type == 0x02 }?.value?.getOrNull(0)?.let { b ->
+                    _lowLatency.value = b.toInt() != 0
+                    DebugLog.d(LogTag.BUDS, "Low latency ${if (b.toInt() != 0) "on" else "off"}")
+                }
+            }
+            0x2B to 0x11 -> {
+                // Wear detection read — T01 = on/off
+                frame.tlvs.find { it.type == 0x01 }?.value?.getOrNull(0)?.let { b ->
+                    _wearDetection.value = b.toInt() == 1
+                    DebugLog.d(LogTag.BUDS, "Wear detection ${if (b.toInt() == 1) "on" else "off"}")
+                }
+            }
+            0x2B to 0x6C -> {
+                // Head control read — T02 = on/off
+                frame.tlvs.find { it.type == 0x02 }?.value?.getOrNull(0)?.let { b ->
+                    _headControl.value = b.toInt() != 0
+                    DebugLog.d(LogTag.BUDS, "Head control ${if (b.toInt() != 0) "on" else "off"}")
                 }
             }
             0x2B to 0x4A -> {
@@ -229,6 +291,10 @@ class FreeBudsManager(private val device: BluetoothDevice) {
             sendFrame(Frame.build(0x2B, 0x2A, ping))
             sendFrame(Frame.build(0x2B, 0x4A, listOf(Tlv(0x02, byteArrayOf()))))
             sendFrame(Frame.build(0x2B, 0xB4, listOf(Tlv(0x01, byteArrayOf(0x08)), Tlv(0x02, byteArrayOf()))))
+            sendFrame(Frame.build(0x2B, 0xA3, emptyList()))
+            sendFrame(Frame.build(0x2B, 0x11, listOf(Tlv(0x01, byteArrayOf()))))
+            sendFrame(Frame.build(0x2B, 0xB4, listOf(Tlv(0x01, byteArrayOf(0x0B)), Tlv(0x02, byteArrayOf()))))
+            sendFrame(Frame.build(0x2B, 0x6C, listOf(Tlv(0x02, byteArrayOf()))))
         }
     }
 
@@ -262,6 +328,47 @@ class FreeBudsManager(private val device: BluetoothDevice) {
             Tlv(0x04, nameBytes),                     // name
         )
         sendFrame(Frame.build(0x2B, 0x49, tlvs))
+    }
+
+    fun setLowLatency(enabled: Boolean) {
+        DebugLog.d(LogTag.APP, "Set low latency ${if (enabled) "on" else "off"}")
+        sendFrame(Frame.build(0x2B, 0xA2, listOf(Tlv(0x01, byteArrayOf(if (enabled) 0x01 else 0x00)))))
+    }
+
+    fun setWearDetection(enabled: Boolean) {
+        DebugLog.d(LogTag.APP, "Set wear detection ${if (enabled) "on" else "off"}")
+        sendFrame(Frame.build(0x2B, 0x10, listOf(Tlv(0x01, byteArrayOf(if (enabled) 0x01 else 0x00)))))
+        _wearDetection.value = enabled
+    }
+
+    fun setCaseTone(enabled: Boolean) {
+        DebugLog.d(LogTag.APP, "Set case tone ${if (enabled) "on" else "off"}")
+        sendFrame(Frame.build(0x2B, 0xB4, listOf(
+            Tlv(0x01, byteArrayOf(0x0B)),
+            Tlv(0x02, byteArrayOf(if (enabled) 0x01 else 0x00))
+        )))
+    }
+
+    fun setHeadControl(enabled: Boolean) {
+        DebugLog.d(LogTag.APP, "Set head control ${if (enabled) "on" else "off"}")
+        sendFrame(Frame.build(0x2B, 0x6C, listOf(Tlv(0x01, byteArrayOf(if (enabled) 0x01 else 0x00)))))
+        _headControl.value = enabled
+    }
+
+    fun setNodAction(action: HeadGestureAction) {
+        DebugLog.d(LogTag.APP, "Set nod ${action.label}")
+        sendFrame(Frame.build(0x2B, 0xB4, listOf(
+            Tlv(0x01, byteArrayOf(0x0B)),
+            Tlv(0x03, byteArrayOf(action.code.toByte()))
+        )))
+    }
+
+    fun setShakeAction(action: HeadGestureAction) {
+        DebugLog.d(LogTag.APP, "Set shake ${action.label}")
+        sendFrame(Frame.build(0x2B, 0xB4, listOf(
+            Tlv(0x01, byteArrayOf(0x0B)),
+            Tlv(0x04, byteArrayOf(action.code.toByte()))
+        )))
     }
 
     fun setAncMode(mode: AncMode, intensity: NcIntensity = NcIntensity.GENERAL, voiceMode: Boolean = false) {

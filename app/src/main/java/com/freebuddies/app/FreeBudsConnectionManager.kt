@@ -51,6 +51,34 @@ object FreeBudsConnectionManager {
         _manager.flatMapLatest { it?.earTipType ?: flowOf(null) }
             .stateIn(scope, SharingStarted.Eagerly, null)
 
+    val lowLatency: StateFlow<Boolean?> =
+        _manager.flatMapLatest { it?.lowLatency ?: flowOf(null) }
+            .stateIn(scope, SharingStarted.Eagerly, null)
+
+    val wearDetection: StateFlow<Boolean?> =
+        _manager.flatMapLatest { it?.wearDetection ?: flowOf(null) }
+            .stateIn(scope, SharingStarted.Eagerly, null)
+
+    val caseTone: StateFlow<Boolean?> =
+        _manager.flatMapLatest { it?.caseTone ?: flowOf(null) }
+            .stateIn(scope, SharingStarted.Eagerly, null)
+
+    val headControl: StateFlow<Boolean?> =
+        _manager.flatMapLatest { it?.headControl ?: flowOf(null) }
+            .stateIn(scope, SharingStarted.Eagerly, null)
+
+    val nodAction: StateFlow<HeadGestureAction?> =
+        _manager.flatMapLatest { it?.nodAction ?: flowOf(null) }
+            .stateIn(scope, SharingStarted.Eagerly, null)
+
+    val shakeAction: StateFlow<HeadGestureAction?> =
+        _manager.flatMapLatest { it?.shakeAction ?: flowOf(null) }
+            .stateIn(scope, SharingStarted.Eagerly, null)
+
+    val pairedDevices: StateFlow<List<PairedDevice>> =
+        _manager.flatMapLatest { it?.pairedDevices ?: flowOf(emptyList()) }
+            .stateIn(scope, SharingStarted.Eagerly, emptyList())
+
     val eqPreset: StateFlow<EqPreset?> =
         _manager.flatMapLatest { it?.eqPreset ?: flowOf(null) }
             .stateIn(scope, SharingStarted.Eagerly, null)
@@ -174,6 +202,30 @@ object FreeBudsConnectionManager {
 
     fun setEarTipType(type: EarTipType) {
         _manager.value?.setEarTipType(type)
+    }
+
+    fun setLowLatency(enabled: Boolean) {
+        _manager.value?.setLowLatency(enabled)
+    }
+
+    fun setWearDetection(enabled: Boolean) {
+        _manager.value?.setWearDetection(enabled)
+    }
+
+    fun setCaseTone(enabled: Boolean) {
+        _manager.value?.setCaseTone(enabled)
+    }
+
+    fun setHeadControl(enabled: Boolean) {
+        _manager.value?.setHeadControl(enabled)
+    }
+
+    fun setNodAction(action: HeadGestureAction) {
+        _manager.value?.setNodAction(action)
+    }
+
+    fun setShakeAction(action: HeadGestureAction) {
+        _manager.value?.setShakeAction(action)
     }
 
     fun setEqPreset(preset: EqPreset) {
