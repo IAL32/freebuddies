@@ -41,16 +41,43 @@ data class DeviceInfo(
     val modelCode: String,
     val hardwareRevision: String,
     val firmwareVersion: String,
+    val bluetoothChip: String = "",
+    val fullFirmware: String = "",
+    val bluetoothFirmwareId: String = "",
+    val budSerials: String = "",
+    val region: String = "",
+    val colorCode: String = "",
 ) {
     companion object {
-        fun fromTlvs(tlvs: List<Tlv>): DeviceInfo? {
+        /** Parse from (0x2B, 0x0A) response. */
+        fun fromDeviceInfoTlvs(tlvs: List<Tlv>): DeviceInfo? {
             val sn = tlvs.find { it.type == 0x01 }?.value?.toString(Charsets.US_ASCII) ?: ""
             val model = tlvs.find { it.type == 0x02 }?.value?.toString(Charsets.US_ASCII) ?: ""
             val hw = tlvs.find { it.type == 0x03 }?.value?.toString(Charsets.US_ASCII) ?: ""
+            val region = tlvs.find { it.type == 0x04 }?.value?.toString(Charsets.US_ASCII) ?: ""
+            val color = tlvs.find { it.type == 0x05 }?.value?.toString(Charsets.US_ASCII) ?: ""
             val fw = tlvs.find { it.type == 0x06 }?.value?.toString(Charsets.US_ASCII) ?: ""
-            
+            val btChip = tlvs.find { it.type == 0x07 }?.value?.toString(Charsets.US_ASCII) ?: ""
+
             if (sn.isEmpty() && model.isEmpty()) return null
-            return DeviceInfo(sn, model, hw, fw)
+            return DeviceInfo(sn, model, hw, fw, bluetoothChip = btChip, region = region, colorCode = color)
+        }
+
+        /** Merge from (0x01, 0x07) response — carries full firmware string, bud serials, BT firmware ID. */
+        fun mergeFromSystemInfo(existing: DeviceInfo?, tlvs: List<Tlv>): DeviceInfo? {
+            val fullFw = tlvs.find { it.type == 0x07 }?.value?.toString(Charsets.UTF_8) ?: ""
+            val sn = tlvs.find { it.type == 0x09 }?.value?.toString(Charsets.US_ASCII) ?: ""
+            val btFwId = tlvs.find { it.type == 0x0A }?.value?.toString(Charsets.US_ASCII) ?: ""
+            val budSerials = tlvs.find { it.type == 0x18 }?.value?.toString(Charsets.US_ASCII) ?: ""
+
+            if (fullFw.isEmpty() && sn.isEmpty()) return null
+
+            return (existing ?: DeviceInfo("", "", "", "")).copy(
+                serialNumber = sn.ifEmpty { existing?.serialNumber ?: "" },
+                fullFirmware = fullFw,
+                bluetoothFirmwareId = btFwId,
+                budSerials = budSerials,
+            )
         }
     }
 }

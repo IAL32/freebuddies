@@ -84,6 +84,8 @@ class FreeBudsManager(private val device: BluetoothDevice) {
                 // Request initial state with "ping" TLVs (00 00)
                 val ping = listOf(Tlv(0x00, byteArrayOf()))
                 sendFrame(Frame.build(0x01, 0x08, ping)) // Get battery
+                sendFrame(Frame.build(0x01, 0x07, ping)) // Get system info
+                sendFrame(Frame.build(0x2B, 0x0A, ping)) // Get device info
                 sendFrame(Frame.build(0x2B, 0x2A, ping)) // Get ANC mode
                 sendFrame(Frame.build(0x2B, 0x4A, listOf(Tlv(0x02, byteArrayOf())))) // Get EQ state
                 sendFrame(Frame.build(0x2B, 0xB4, listOf(Tlv(0x01, byteArrayOf(0x08)), Tlv(0x02, byteArrayOf())))) // Get ear tips
@@ -132,9 +134,19 @@ class FreeBudsManager(private val device: BluetoothDevice) {
                     DebugLog.d(LogTag.BUDS, "Battery L=${it.leftPercent}% R=${it.rightPercent}% C=${it.casePercent}%")
                 }
             }
-            0x2B to 0x0A -> {
-                DeviceInfo.fromTlvs(frame.tlvs)?.let {
+            0x01 to 0x07 -> {
+                DeviceInfo.mergeFromSystemInfo(_deviceInfo.value, frame.tlvs)?.let {
                     _deviceInfo.value = it
+                    DebugLog.d(LogTag.BUDS, "System info fw=${it.fullFirmware}")
+                }
+            }
+            0x2B to 0x0A -> {
+                DeviceInfo.fromDeviceInfoTlvs(frame.tlvs)?.let {
+                    _deviceInfo.value = it.copy(
+                        fullFirmware = _deviceInfo.value?.fullFirmware ?: "",
+                        bluetoothFirmwareId = _deviceInfo.value?.bluetoothFirmwareId ?: "",
+                        budSerials = _deviceInfo.value?.budSerials ?: "",
+                    )
                     DebugLog.d(LogTag.BUDS, "Device ${it.modelCode} fw=${it.firmwareVersion}")
                 }
             }
