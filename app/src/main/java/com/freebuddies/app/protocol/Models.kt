@@ -123,6 +123,42 @@ data class RingingStatus(
 }
 
 /**
+ * EQ preset for (0x2B, 0x49) write and (0x2B, 0x4A) capabilities read.
+ *
+ * Write: Tag 01 = [preset_id]  (single byte for built-in presets)
+ * Read:  (0x2B, 0x4A) Tag 02 = current preset id
+ * Ack:   Tag 7F = 000186A0
+ */
+enum class EqCategory { SPECIALIZED, OFFICIAL }
+
+/**
+ * A user-created custom EQ profile stored locally on the phone.
+ * Sent to the buds via (0x2B, 0x49) with the multi-tag format.
+ */
+data class CustomEqProfile(
+    val name: String,
+    val bands: List<Int>, // 10 values, each -6..6
+) {
+    /** Slot code for this profile (0x64 = first custom slot). */
+    val slotCode: Int get() = 0x64
+}
+
+enum class EqPreset(val code: Int, val label: String, val category: EqCategory) {
+    DEFAULT(0x05, "default", EqCategory.OFFICIAL),
+    BALANCED(0x0B, "balanced", EqCategory.SPECIALIZED),
+    CLASSICAL(0x0C, "classical", EqCategory.SPECIALIZED),
+    BASS_BOOST(0x02, "bass boost", EqCategory.OFFICIAL),
+    TREBLE_BOOST(0x03, "treble boost", EqCategory.OFFICIAL),
+    VOICES(0x09, "voices", EqCategory.OFFICIAL),
+    SYMPHONY(0xC8, "symphony", EqCategory.OFFICIAL),
+    HI_FI_LIVE(0xC9, "hi-fi live", EqCategory.OFFICIAL);
+
+    companion object {
+        fun fromCode(code: Int): EqPreset? = entries.find { it.code == code }
+    }
+}
+
+/**
  * Sound control (ANC / Awareness) for (0x2B, 0x04) write and (0x2B, 0x2A) read.
  *
  * Read encoding (0x2A):  Tag 01 = [intensity, mode]

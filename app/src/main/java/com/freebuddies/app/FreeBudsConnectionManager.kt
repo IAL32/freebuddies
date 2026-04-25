@@ -9,6 +9,8 @@ import com.freebuddies.app.bluetooth.FreeBudsManager
 import com.freebuddies.app.protocol.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import org.json.JSONArray
+import org.json.JSONObject
 
 @OptIn(ExperimentalCoroutinesApi::class)
 object FreeBudsConnectionManager {
@@ -44,6 +46,17 @@ object FreeBudsConnectionManager {
         _manager.flatMapLatest { it?.ringingStatus ?: flowOf(RingingStatus(false, false)) }
             .stateIn(scope, SharingStarted.Eagerly, RingingStatus(false, false))
 
+    val eqPreset: StateFlow<EqPreset?> =
+        _manager.flatMapLatest { it?.eqPreset ?: flowOf(null) }
+            .stateIn(scope, SharingStarted.Eagerly, null)
+
+    val eqPresetCode: StateFlow<Int> =
+        _manager.flatMapLatest { it?.eqPresetCode ?: flowOf(-1) }
+            .stateIn(scope, SharingStarted.Eagerly, -1)
+
+    private val _customEqProfiles = MutableStateFlow<List<CustomEqProfile>>(emptyList())
+    val customEqProfiles: StateFlow<List<CustomEqProfile>> = _customEqProfiles.asStateFlow()
+
     private val _targetDevice = MutableStateFlow<BluetoothDevice?>(null)
     val targetDevice: StateFlow<BluetoothDevice?> = _targetDevice.asStateFlow()
 
@@ -53,6 +66,7 @@ object FreeBudsConnectionManager {
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences("freebuddies", Context.MODE_PRIVATE)
         _preferredNcIntensity.value = NcIntensity.fromCode(prefs.getInt("nc_intensity", NcIntensity.GENERAL.code))
+        _customEqProfiles.value = loadCustomProfiles()
     }
 
     fun setPreferredNcIntensity(intensity: NcIntensity) {
@@ -140,5 +154,62 @@ object FreeBudsConnectionManager {
 
     fun setRinging(side: Int, active: Boolean) {
         _manager.value?.setRinging(side, active)
+    }
+
+    fun setEqPreset(preset: EqPreset) {
+        _manager.value?.setEqPreset(preset)
+    }
+
+    fun applyCustomEqProfile(profile: CustomEqProfile) {
+        _manager.value?.setCustomEqProfile(profile)
+    }
+
+    fun saveCustomEqProfile(profile: CustomEqProfile) {
+        val list = _customEqProfiles.value.toMutableList()
+        val existingIndex = list.indexOfFirst { it.name == profile.name }
+        if (existingIndex >= 0) {
+            list[existingIndex] = profile
+        } else {
+            list.add(profile)
+        }
+        _customEqProfiles.value = list
+        persistCustomProfiles(list)
+    }
+
+    fun deleteCustomEqProfile(profile: CustomEqProfile) {
+        val list = _customEqProfiles.value.filter { it.name != profile.name }
+        _customEqProfiles.value = list
+        persistCustomProfiles(list)
+    }
+
+    private fun loadCustomProfiles(): List<CustomEqProfile> {
+        val json = prefs.getString("custom_eq_profiles", null) ?: return emptyList()
+        return try {
+            val arr = JSONArray(json)
+            (0 until arr.length()).map { i ->
+                val obj = arr.getJSONObject(i)
+                val bandsArr = obj.getJSONArray("bands")
+                CustomEqProfile(
+                    name = obj.getString("name"),
+                    bands = (0 until bandsArr.length()).map { j -> bandsArr.getInt(j) }
+                )
+            }
+        } catch (e: Exception) {
+            DebugLog.e(LogTag.APP, "Failed to load custom EQ profiles: ${e.message}")
+            emptyList()
+        }
+    }
+
+    private fun persistCustomProfiles(profiles: List<CustomEqProfile>) {
+        val arr = JSONArray()
+        for (p in profiles) {
+            val obj = JSONObject()
+            obj.put("name", p.name)
+            val bands = JSONArray()
+            p.bands.forEach { bands.put(it) }
+            obj.put("bands", bands)
+            arr.put(obj)
+        }
+        prefs.edit().putString("custom_eq_profiles", arr.toString()).apply()
     }
 }

@@ -35,6 +35,13 @@ class FreeBudsManager(private val device: BluetoothDevice) {
     private val _ringingStatus = MutableStateFlow(RingingStatus(left = false, right = false))
     val ringingStatus = _ringingStatus.asStateFlow()
 
+    private val _eqPreset = MutableStateFlow<EqPreset?>(null)
+    val eqPreset = _eqPreset.asStateFlow()
+
+    /** Raw EQ preset code from the buds (includes custom IDs like 0x64). */
+    private val _eqPresetCode = MutableStateFlow(-1)
+    val eqPresetCode = _eqPresetCode.asStateFlow()
+
     private val frameReader = FrameReader { frame ->
         handleFrame(frame)
     }
@@ -54,6 +61,7 @@ class FreeBudsManager(private val device: BluetoothDevice) {
                 val ping = listOf(Tlv(0x00, byteArrayOf()))
                 sendFrame(Frame.build(0x01, 0x08, ping)) // Get battery
                 sendFrame(Frame.build(0x2B, 0x2A, ping)) // Get ANC mode
+                sendFrame(Frame.build(0x2B, 0x4A, listOf(Tlv(0x02, byteArrayOf())))) // Get EQ state
 
                 startReader()
             } catch (e: IOException) {
@@ -171,6 +179,17 @@ class FreeBudsManager(private val device: BluetoothDevice) {
                     DebugLog.w(LogTag.BUDS, "ANC write rejected, status=$status")
                 }
             }
+            0x2B to 0x4A -> {
+                // EQ capabilities — Tag 02 = current preset id
+                val currentCode = frame.tlvs.find { it.type == 0x02 }
+                    ?.value?.getOrNull(0)?.toInt()?.and(0xFF)
+                if (currentCode != null) {
+                    _eqPresetCode.value = currentCode
+                    val preset = EqPreset.fromCode(currentCode)
+                    _eqPreset.value = preset
+                    DebugLog.d(LogTag.BUDS, "EQ preset ${preset?.label ?: "custom(${"%02X".format(currentCode)})"}")
+                }
+            }
             else -> DebugLog.d(LogTag.RX, "Unhandled $frameId")
         }
     }
@@ -192,7 +211,32 @@ class FreeBudsManager(private val device: BluetoothDevice) {
             val ping = listOf(Tlv(0x00, byteArrayOf()))
             sendFrame(Frame.build(0x01, 0x08, ping))
             sendFrame(Frame.build(0x2B, 0x2A, ping))
+            sendFrame(Frame.build(0x2B, 0x4A, listOf(Tlv(0x02, byteArrayOf()))))
         }
+    }
+
+    fun setEqPreset(preset: EqPreset) {
+        DebugLog.d(LogTag.APP, "Set EQ ${preset.label}")
+        _eqPreset.value = preset
+        _eqPresetCode.value = preset.code
+        sendFrame(Frame.build(0x2B, 0x49, listOf(Tlv(0x01, byteArrayOf(preset.code.toByte())))))
+    }
+
+    fun setCustomEqProfile(profile: CustomEqProfile) {
+        DebugLog.d(LogTag.APP, "Set custom EQ \"${profile.name}\"")
+        _eqPreset.value = null
+        _eqPresetCode.value = profile.slotCode
+        // Each UI step (±1) maps to ±10 in the internal byte scale
+        val curve = ByteArray(10) { i -> ((profile.bands.getOrElse(i) { 0 }) * 10).toByte() }
+        val nameBytes = profile.name.toByteArray(Charsets.US_ASCII)
+        val tlvs = listOf(
+            Tlv(0x01, byteArrayOf(profile.slotCode.toByte())),
+            Tlv(0x02, byteArrayOf(0x0A)),           // 10 bands
+            Tlv(0x05, byteArrayOf(0x01)),            // active
+            Tlv(0x03, curve),                         // EQ curve
+            Tlv(0x04, nameBytes),                     // name
+        )
+        sendFrame(Frame.build(0x2B, 0x49, tlvs))
     }
 
     fun setAncMode(mode: AncMode, intensity: NcIntensity = NcIntensity.GENERAL, voiceMode: Boolean = false) {

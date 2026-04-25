@@ -3,6 +3,8 @@ package com.freebuddies.app
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import com.freebuddies.app.protocol.AncMode
+import com.freebuddies.app.protocol.CustomEqProfile
+import com.freebuddies.app.protocol.EqPreset
 import com.freebuddies.app.protocol.NcIntensity
 
 class FreeBudsViewModel : ViewModel() {
@@ -14,6 +16,9 @@ class FreeBudsViewModel : ViewModel() {
     val ringingStatus = FreeBudsConnectionManager.ringingStatus
     val targetDevice = FreeBudsConnectionManager.targetDevice
     val preferredNcIntensity = FreeBudsConnectionManager.preferredNcIntensity
+    val eqPreset = FreeBudsConnectionManager.eqPreset
+    val eqPresetCode = FreeBudsConnectionManager.eqPresetCode
+    val customEqProfiles = FreeBudsConnectionManager.customEqProfiles
 
     fun setPreferredNcIntensity(intensity: NcIntensity) = FreeBudsConnectionManager.setPreferredNcIntensity(intensity)
 
@@ -27,5 +32,21 @@ class FreeBudsViewModel : ViewModel() {
 
     fun setRinging(side: Int, active: Boolean) {
         FreeBudsConnectionManager.setRinging(side, active)
+    }
+
+    fun setEqPreset(preset: EqPreset) {
+        FreeBudsConnectionManager.setEqPreset(preset)
+    }
+
+    fun applyCustomEqProfile(profile: CustomEqProfile) {
+        FreeBudsConnectionManager.applyCustomEqProfile(profile)
+    }
+
+    fun saveCustomEqProfile(profile: CustomEqProfile) {
+        FreeBudsConnectionManager.saveCustomEqProfile(profile)
+    }
+
+    fun deleteCustomEqProfile(profile: CustomEqProfile) {
+        FreeBudsConnectionManager.deleteCustomEqProfile(profile)
     }
 }
