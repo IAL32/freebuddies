@@ -19,12 +19,14 @@ import com.freebuddies.app.protocol.EqPreset
 import com.freebuddies.app.ui.components.CustomProfileRow
 import com.freebuddies.app.ui.components.EqPresetRow
 import com.freebuddies.app.ui.components.FbSurface
+import com.freebuddies.app.ui.components.FindBudToggle
 import com.freebuddies.app.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SoundScreen(vm: FreeBudsViewModel) {
     val isConnected by vm.isConnected.collectAsStateWithLifecycle(initialValue = false)
+    val lowLatency by vm.lowLatency.collectAsStateWithLifecycle(initialValue = null)
     val eqPreset by vm.eqPreset.collectAsStateWithLifecycle(initialValue = null)
     val eqPresetCode by vm.eqPresetCode.collectAsStateWithLifecycle(initialValue = -1)
     val customProfiles by vm.customEqProfiles.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -45,6 +47,35 @@ fun SoundScreen(vm: FreeBudsViewModel) {
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(Dimens.SectionSpacing),
     ) {
+        // Audio quality
+        FbSurface {
+            Text(
+                text = "audio quality",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(bottom = Dimens.TitleBottomPadding)
+            )
+            EqPresetRow(
+                label = "prioritize sound quality",
+                isSelected = lowLatency == true,
+                enabled = isConnected,
+                onClick = { vm.setLowLatency(true) }
+            )
+            Spacer(Modifier.height(Dimens.RowSpacing))
+            EqPresetRow(
+                label = "prioritize connection quality",
+                isSelected = lowLatency != true,
+                enabled = isConnected,
+                onClick = { vm.setLowLatency(false) }
+            )
+            Spacer(Modifier.height(Dimens.RowSpacing))
+            FindBudToggle(
+                label = "low audio latency",
+                isRinging = lowLatency == true,
+                onToggle = { vm.setLowLatency(it) },
+                enabled = isConnected,
+            )
+        }
+
         // Specialized presets
         FbSurface {
             Text(
