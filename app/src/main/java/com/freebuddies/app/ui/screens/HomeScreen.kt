@@ -21,11 +21,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.freebuddies.app.FreeBudsViewModel
 import com.freebuddies.app.protocol.*
-import com.freebuddies.app.ui.components.AncModeSelector
-import com.freebuddies.app.ui.components.NcIntensitySelector
-import com.freebuddies.app.ui.components.BudBatteryIndicator
-import com.freebuddies.app.ui.components.FbSurface
-import com.freebuddies.app.ui.components.FindBudToggle
+import com.freebuddies.app.ui.components.*
 import com.freebuddies.app.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -46,6 +42,12 @@ fun HomeScreen(vm: FreeBudsViewModel, navController: NavController) {
     val headControl by vm.headControl.collectAsStateWithLifecycle(initialValue = null)
     val nodAction by vm.nodAction.collectAsStateWithLifecycle(initialValue = null)
     val shakeAction by vm.shakeAction.collectAsStateWithLifecycle(initialValue = null)
+    val voiceLanguage by vm.voiceLanguage.collectAsStateWithLifecycle(initialValue = null)
+    val voiceLanguages by vm.voiceLanguages.collectAsStateWithLifecycle(initialValue = emptyList())
+    val doubleTap by vm.doubleTap.collectAsStateWithLifecycle(initialValue = null)
+    val tripleTap by vm.tripleTap.collectAsStateWithLifecycle(initialValue = null)
+    val longTap by vm.longTap.collectAsStateWithLifecycle(initialValue = null)
+    val swipe by vm.swipe.collectAsStateWithLifecycle(initialValue = null)
 
     val bothInCase = inEarState?.let {
         it.left == WearState.IN_CASE && it.right == WearState.IN_CASE
@@ -53,7 +55,8 @@ fun HomeScreen(vm: FreeBudsViewModel, navController: NavController) {
 
     var pendingRingSide by remember { mutableIntStateOf(-1) }
     var showEarTips by remember { mutableStateOf(false) }
-    var showHeadControl by remember { mutableStateOf(false) }
+    var showGestures by remember { mutableStateOf(false) }
+    var showLanguagePicker by remember { mutableStateOf(false) }
     var showCaseToneHint by remember { mutableStateOf(false) }
 
     if (pendingRingSide >= 0) {
@@ -106,7 +109,6 @@ fun HomeScreen(vm: FreeBudsViewModel, navController: NavController) {
                 val rightWear = inEarState?.right
                     ?: if (batteryStatus?.rightInEar == true) WearState.IN_EAR else WearState.OUT
 
-                // Left bud + find
                 BudWithFind(
                     percent = batteryStatus?.leftPercent ?: 0,
                     charging = batteryStatus?.leftCharging ?: false,
@@ -118,14 +120,12 @@ fun HomeScreen(vm: FreeBudsViewModel, navController: NavController) {
                         if (active) pendingRingSide = 0 else vm.setRinging(side = 0, active = false)
                     },
                 )
-                // Case
                 BudBatteryIndicator(
                     percent = batteryStatus?.casePercent ?: 0,
                     charging = batteryStatus?.caseCharging ?: false,
                     wearState = null,
                     label = "case"
                 )
-                // Right bud + find
                 BudWithFind(
                     percent = batteryStatus?.rightPercent ?: 0,
                     charging = batteryStatus?.rightCharging ?: false,
@@ -218,37 +218,25 @@ fun HomeScreen(vm: FreeBudsViewModel, navController: NavController) {
             }
         }
 
-        // Sound configuration + Ear tips (side by side)
+        // Sound + Ear tips
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(Dimens.SectionSpacing),
         ) {
-            LinkButton(
-                label = "sound",
-                value = eqPreset?.label ?: "custom",
-                onClick = { navController.navigate("sound") },
-                enabled = true,
-                modifier = Modifier.weight(1f),
-            )
-            LinkButton(
-                label = "ear tips",
-                value = earTipType?.label ?: "",
-                onClick = { showEarTips = true },
-                enabled = isConnected,
-                modifier = Modifier.weight(1f),
-            )
+            LinkButton("sound", eqPreset?.label ?: "custom", { navController.navigate("sound") }, true, Modifier.weight(1f))
+            LinkButton("ear tips", earTipType?.label ?: "", { showEarTips = true }, isConnected, Modifier.weight(1f))
         }
 
-        // Head control
-        LinkButton(
-            label = "head control",
-            value = if (headControl == true) "on" else "off",
-            onClick = { showHeadControl = true },
-            enabled = isConnected,
+        // Gestures + Voice language
+        Row(
             modifier = Modifier.fillMaxWidth(),
-        )
+            horizontalArrangement = Arrangement.spacedBy(Dimens.SectionSpacing),
+        ) {
+            LinkButton("gestures", "tap, hold, swipe", { vm.refreshGestureConfig(); showGestures = true }, isConnected, Modifier.weight(1f))
+            LinkButton("voice language", voiceLanguage ?: "", { showLanguagePicker = true }, isConnected && voiceLanguages.isNotEmpty(), Modifier.weight(1f))
+        }
 
-        // Charging case tone + Smart wear detection (side by side)
+        // Case tone + Wear detection
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(Dimens.SectionSpacing),
@@ -258,9 +246,7 @@ fun HomeScreen(vm: FreeBudsViewModel, navController: NavController) {
                 isOn = caseTone == true,
                 onToggle = { vm.setCaseTone(it) },
                 enabled = isConnected && bothInCase,
-                onDisabledTap = if (isConnected && !bothInCase) {
-                    { showCaseToneHint = true }
-                } else null,
+                onDisabledTap = if (isConnected && !bothInCase) { { showCaseToneHint = true } } else null,
                 modifier = Modifier.weight(1f),
             )
             ToggleButton(
@@ -274,11 +260,7 @@ fun HomeScreen(vm: FreeBudsViewModel, navController: NavController) {
 
         if (!isConnected) {
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text(
-                    text = "disconnected",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = OnDarkMuted,
-                )
+                Text("disconnected", style = MaterialTheme.typography.bodyMedium, color = OnDarkMuted)
             }
         }
     }
@@ -288,110 +270,169 @@ fun HomeScreen(vm: FreeBudsViewModel, navController: NavController) {
     )
     } // Box
 
-    // Ear tips bottom sheet
-    if (showEarTips) {
-        ModalBottomSheet(
-            onDismissRequest = { showEarTips = false },
-            containerColor = Surface,
-            dragHandle = { BottomSheetDefaults.DragHandle(color = OnDarkFaint) },
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 32.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    text = "ear tips",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = OnDark,
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
-                EarTipType.entries.forEach { type ->
-                    val isSelected = earTipType == type
-                    val bg = if (isSelected) AccentTeal.copy(alpha = 0.15f) else SurfaceVariant
-                    val textColor = if (isSelected) AccentTeal else OnDark
+    // --- Bottom sheets ---
 
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(Dimens.RowHeightLarge)
-                            .clip(MaterialTheme.shapes.extraSmall)
-                            .background(bg)
-                            .clickable {
-                                vm.setEarTipType(type)
-                                showEarTips = false
-                            }
-                            .padding(horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text(
-                            text = type.label,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = textColor,
-                        )
-                        if (isSelected) {
-                            Box(
-                                modifier = Modifier
-                                    .size(Dimens.DotSize)
-                                    .clip(MaterialTheme.shapes.extraSmall)
-                                    .background(AccentTeal)
-                            )
-                        }
+    if (showEarTips) {
+        PickerSheet(
+            title = "ear tips",
+            items = EarTipType.entries.toList(),
+            selected = earTipType,
+            labelOf = { it.label },
+            onSelect = { vm.setEarTipType(it); showEarTips = false },
+            onDismiss = { showEarTips = false },
+        )
+    }
+
+    if (showLanguagePicker && voiceLanguages.isNotEmpty()) {
+        PickerSheet(
+            title = "voice language",
+            items = voiceLanguages,
+            selected = voiceLanguage,
+            labelOf = { it },
+            onSelect = { vm.setVoiceLanguage(it); showLanguagePicker = false },
+            onDismiss = { showLanguagePicker = false },
+        )
+    }
+
+    if (showGestures) {
+        GesturesSheet(
+            doubleTap = doubleTap,
+            tripleTap = tripleTap,
+            longTap = longTap,
+            swipe = swipe,
+            headControl = headControl,
+            nodAction = nodAction,
+            shakeAction = shakeAction,
+            isConnected = isConnected,
+            onSetDoubleTap = vm::setDoubleTap,
+            onSetTripleTap = vm::setTripleTap,
+            onSetLongTap = vm::setLongTap,
+            onSetSwipe = vm::setSwipe,
+            onSetHeadControl = vm::setHeadControl,
+            onSetNodAction = vm::setNodAction,
+            onSetShakeAction = vm::setShakeAction,
+            onDismiss = { showGestures = false },
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Extracted sheet composables
+// ---------------------------------------------------------------------------
+
+/** Generic bottom-sheet picker for a list of items. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun <T> PickerSheet(
+    title: String,
+    items: List<T>,
+    selected: T?,
+    labelOf: (T) -> String,
+    onSelect: (T) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Surface,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = OnDarkFaint) },
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(title, style = MaterialTheme.typography.titleMedium, color = OnDark, modifier = Modifier.padding(bottom = 8.dp))
+            items.forEach { item ->
+                val isSelected = item == selected
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(Dimens.RowHeightLarge)
+                        .clip(MaterialTheme.shapes.extraSmall)
+                        .background(if (isSelected) AccentTeal.copy(alpha = 0.15f) else SurfaceVariant)
+                        .clickable { onSelect(item) }
+                        .padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(labelOf(item), style = MaterialTheme.typography.bodyLarge, color = if (isSelected) AccentTeal else OnDark)
+                    if (isSelected) {
+                        Box(Modifier.size(Dimens.DotSize).clip(MaterialTheme.shapes.extraSmall).background(AccentTeal))
                     }
                 }
             }
         }
     }
+}
 
-    // Head control bottom sheet
-    if (showHeadControl) {
-        ModalBottomSheet(
-            onDismissRequest = { showHeadControl = false },
-            containerColor = Surface,
-            dragHandle = { BottomSheetDefaults.DragHandle(color = OnDarkFaint) },
+/** Gestures & head control bottom sheet. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GesturesSheet(
+    doubleTap: TapGestureConfig?,
+    tripleTap: TapGestureConfig?,
+    longTap: LongTapConfig?,
+    swipe: SwipeConfig?,
+    headControl: Boolean?,
+    nodAction: HeadGestureAction?,
+    shakeAction: HeadGestureAction?,
+    isConnected: Boolean,
+    onSetDoubleTap: (Int, TapAction) -> Unit,
+    onSetTripleTap: (Int, TapAction) -> Unit,
+    onSetLongTap: (Int, LongTapAction) -> Unit,
+    onSetSwipe: (Boolean) -> Unit,
+    onSetHeadControl: (Boolean) -> Unit,
+    onSetNodAction: (HeadGestureAction) -> Unit,
+    onSetShakeAction: (HeadGestureAction) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Surface,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = OnDarkFaint) },
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 32.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(Dimens.RowSpacing),
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 32.dp),
-                verticalArrangement = Arrangement.spacedBy(Dimens.RowSpacing),
-            ) {
-                Text(
-                    text = "head control",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = OnDark,
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
+            SectionTitle("double tap")
+            FbDropdown("left", doubleTap?.left, TapAction.entries, { it.label }) { onSetDoubleTap(1, it) }
+            FbDropdown("right", doubleTap?.right, TapAction.entries, { it.label }) { onSetDoubleTap(2, it) }
 
-                FindBudToggle(
-                    label = "head control",
-                    isRinging = headControl == true,
-                    onToggle = { vm.setHeadControl(it) },
-                    enabled = isConnected,
-                )
+            Spacer(Modifier.height(8.dp))
+            SectionTitle("triple tap")
+            FbDropdown("left", tripleTap?.left, TapAction.entries, { it.label }) { onSetTripleTap(1, it) }
+            FbDropdown("right", tripleTap?.right, TapAction.entries, { it.label }) { onSetTripleTap(2, it) }
 
-                if (headControl == true) {
-                    Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(8.dp))
+            SectionTitle("long tap (ANC cycle)")
+            FbDropdown("left", longTap?.left, LongTapAction.entries, { it.label }) { onSetLongTap(1, it) }
+            FbDropdown("right", longTap?.right, LongTapAction.entries, { it.label }) { onSetLongTap(2, it) }
 
-                    GestureDropdown(
-                        label = "nod head",
-                        selected = nodAction,
-                        onSelect = { vm.setNodAction(it) },
-                    )
+            Spacer(Modifier.height(8.dp))
+            SectionTitle("swipe")
+            FindBudToggle("volume control", swipe?.enabled == true, onSetSwipe, isConnected)
 
-                    GestureDropdown(
-                        label = "shake head",
-                        selected = shakeAction,
-                        onSelect = { vm.setShakeAction(it) },
-                    )
-                }
+            Spacer(Modifier.height(8.dp))
+            SectionTitle("head control")
+            FindBudToggle("head control", headControl == true, onSetHeadControl, isConnected)
+            if (headControl == true) {
+                FbDropdown("nod head", nodAction, HeadGestureAction.entries, { it.label }, onSetNodAction)
+                FbDropdown("shake head", shakeAction, HeadGestureAction.entries, { it.label }, onSetShakeAction)
             }
         }
     }
+}
+
+@Composable
+private fun SectionTitle(text: String) {
+    Text(text, style = MaterialTheme.typography.titleMedium, color = OnDark, modifier = Modifier.padding(bottom = 4.dp))
 }
 
 /** Battery indicator with a small find-my-buds icon below it. */
@@ -427,132 +468,6 @@ private fun BudWithFind(
                 tint = if (isRinging) AccentTeal else OnDarkFaint,
                 modifier = Modifier.size(16.dp),
             )
-        }
-    }
-}
-
-/** Compact link row with label + current value. */
-@Composable
-private fun LinkButton(
-    label: String,
-    value: String,
-    onClick: () -> Unit,
-    enabled: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier
-            .height(Dimens.RowHeight)
-            .clip(MaterialTheme.shapes.medium)
-            .background(MaterialTheme.colorScheme.surface)
-            .clickable(enabled = enabled) { onClick() }
-            .padding(horizontal = 12.dp),
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (enabled) AccentTeal else OnDarkMuted,
-        )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.labelSmall,
-            color = OnDarkMuted,
-        )
-    }
-}
-
-/** Compact toggle card for side-by-side layout. */
-@Composable
-private fun ToggleButton(
-    label: String,
-    isOn: Boolean,
-    onToggle: (Boolean) -> Unit,
-    enabled: Boolean,
-    modifier: Modifier = Modifier,
-    onDisabledTap: (() -> Unit)? = null,
-) {
-    Row(
-        modifier = modifier
-            .height(Dimens.RowHeight)
-            .clip(MaterialTheme.shapes.medium)
-            .background(MaterialTheme.colorScheme.surface)
-            .clickable {
-                if (enabled) onToggle(!isOn)
-                else onDisabledTap?.invoke()
-            }
-            .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (enabled) OnDark else OnDarkMuted,
-        )
-        Box(
-            modifier = Modifier
-                .size(Dimens.DotSize)
-                .clip(CircleShape)
-                .background(if (isOn) AccentTeal else OnDarkFaint)
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun GestureDropdown(
-    label: String,
-    selected: HeadGestureAction?,
-    onSelect: (HeadGestureAction) -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-
-    ExposedDropdownMenuBox(
-        expanded = expanded,
-        onExpandedChange = { expanded = it },
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(Dimens.RowHeight)
-                .clip(MaterialTheme.shapes.extraSmall)
-                .background(SurfaceVariant)
-                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
-                .padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodyLarge,
-                color = OnDark,
-            )
-            Text(
-                text = selected?.label ?: "",
-                style = MaterialTheme.typography.labelMedium,
-                color = AccentTeal,
-            )
-        }
-        ExposedDropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            containerColor = Surface,
-        ) {
-            HeadGestureAction.entries.forEach { action ->
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            text = action.label,
-                            color = if (action == selected) AccentTeal else OnDark,
-                        )
-                    },
-                    onClick = {
-                        onSelect(action)
-                        expanded = false
-                    },
-                )
-            }
         }
     }
 }

@@ -6,7 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -352,6 +352,132 @@ fun FindBudToggle(
                     .clip(CircleShape)
                     .background(if (isRinging) Primary else OnDarkMuted)
             )
+        }
+    }
+}
+
+/** Compact link row with label + current value. */
+@Composable
+fun LinkButton(
+    label: String,
+    value: String,
+    onClick: () -> Unit,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .height(Dimens.RowHeight)
+            .clip(MaterialTheme.shapes.medium)
+            .background(MaterialTheme.colorScheme.surface)
+            .clickable(enabled = enabled) { onClick() }
+            .padding(horizontal = 12.dp),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (enabled) AccentTeal else OnDarkMuted,
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.labelSmall,
+            color = OnDarkMuted,
+        )
+    }
+}
+
+/** Compact toggle card for side-by-side layout. */
+@Composable
+fun ToggleButton(
+    label: String,
+    isOn: Boolean,
+    onToggle: (Boolean) -> Unit,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    onDisabledTap: (() -> Unit)? = null,
+) {
+    Row(
+        modifier = modifier
+            .height(Dimens.RowHeight)
+            .clip(MaterialTheme.shapes.medium)
+            .background(MaterialTheme.colorScheme.surface)
+            .clickable {
+                if (enabled) onToggle(!isOn)
+                else onDisabledTap?.invoke()
+            }
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (enabled) OnDark else OnDarkMuted,
+        )
+        Box(
+            modifier = Modifier
+                .size(Dimens.DotSize)
+                .clip(CircleShape)
+                .background(if (isOn) AccentTeal else OnDarkFaint)
+        )
+    }
+}
+
+/**
+ * Generic dropdown row: shows [label] on the left, [selectedLabel] on the right,
+ * and opens a menu with [options] on tap.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun <T> FbDropdown(
+    label: String,
+    selected: T?,
+    options: List<T>,
+    labelOf: (T) -> String,
+    onSelect: (T) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(Dimens.RowHeight)
+                .clip(MaterialTheme.shapes.extraSmall)
+                .background(SurfaceVariant)
+                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(text = label, style = MaterialTheme.typography.bodyLarge, color = OnDark)
+            Text(
+                text = if (selected != null) labelOf(selected) else "",
+                style = MaterialTheme.typography.labelMedium,
+                color = AccentTeal,
+            )
+        }
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            containerColor = Surface,
+            shape = DropdownMenuShape,
+        ) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = labelOf(option),
+                            color = if (option == selected) AccentTeal else OnDark,
+                        )
+                    },
+                    onClick = { onSelect(option); expanded = false },
+                )
+            }
         }
     }
 }

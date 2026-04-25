@@ -11,3 +11,6 @@ val Shapes = Shapes(
     medium = RoundedCornerShape(16.dp), // Card radius
     large = RoundedCornerShape(16.dp)
 )
+
+/** Shape for dropdown menu popups — extraSmall is CircleShape which is too round for menus. */
+val DropdownMenuShape = RoundedCornerShape(12.dp)
