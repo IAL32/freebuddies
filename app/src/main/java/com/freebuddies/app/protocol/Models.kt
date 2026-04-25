@@ -159,6 +159,21 @@ enum class EqPreset(val code: Int, val label: String, val category: EqCategory) 
 }
 
 /**
+ * Ear tip type for (0x2B, 0xB4).
+ *
+ * Read:  Tag 01 = 0x08, Tag 02 = (empty)  → response Tag 01 = 0x08, Tag 02 = [type]
+ * Write: Tag 01 = 0x08, Tag 02 = [type]   → response echoes the written value
+ */
+enum class EarTipType(val code: Int, val label: String) {
+    SILICONE(0x01, "silicone tips"),
+    MEMORY_FOAM(0x02, "memory foam tips");
+
+    companion object {
+        fun fromCode(code: Int): EarTipType? = entries.find { it.code == code }
+    }
+}
+
+/**
  * Sound control (ANC / Awareness) for (0x2B, 0x04) write and (0x2B, 0x2A) read.
  *
  * Read encoding (0x2A):  Tag 01 = [intensity, mode]

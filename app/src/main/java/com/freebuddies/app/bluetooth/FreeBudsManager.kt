@@ -38,6 +38,9 @@ class FreeBudsManager(private val device: BluetoothDevice) {
     private val _eqPreset = MutableStateFlow<EqPreset?>(null)
     val eqPreset = _eqPreset.asStateFlow()
 
+    private val _earTipType = MutableStateFlow<EarTipType?>(null)
+    val earTipType = _earTipType.asStateFlow()
+
     /** Raw EQ preset code from the buds (includes custom IDs like 0x64). */
     private val _eqPresetCode = MutableStateFlow(-1)
     val eqPresetCode = _eqPresetCode.asStateFlow()
@@ -62,6 +65,7 @@ class FreeBudsManager(private val device: BluetoothDevice) {
                 sendFrame(Frame.build(0x01, 0x08, ping)) // Get battery
                 sendFrame(Frame.build(0x2B, 0x2A, ping)) // Get ANC mode
                 sendFrame(Frame.build(0x2B, 0x4A, listOf(Tlv(0x02, byteArrayOf())))) // Get EQ state
+                sendFrame(Frame.build(0x2B, 0xB4, listOf(Tlv(0x01, byteArrayOf(0x08)), Tlv(0x02, byteArrayOf())))) // Get ear tips
 
                 startReader()
             } catch (e: IOException) {
@@ -179,6 +183,18 @@ class FreeBudsManager(private val device: BluetoothDevice) {
                     DebugLog.w(LogTag.BUDS, "ANC write rejected, status=$status")
                 }
             }
+            0x2B to 0xB4 -> {
+                // Ear tips — T01=0x08 (sub-cmd), T02 = tip type
+                val subCmd = frame.tlvs.find { it.type == 0x01 }?.value?.getOrNull(0)?.toInt()?.and(0xFF)
+                val tipCode = frame.tlvs.find { it.type == 0x02 }?.value?.getOrNull(0)?.toInt()?.and(0xFF)
+                if (subCmd == 0x08 && tipCode != null) {
+                    val tip = EarTipType.fromCode(tipCode)
+                    if (tip != null) {
+                        _earTipType.value = tip
+                        DebugLog.d(LogTag.BUDS, "Ear tips ${tip.label}")
+                    }
+                }
+            }
             0x2B to 0x4A -> {
                 // EQ capabilities — Tag 02 = current preset id
                 val currentCode = frame.tlvs.find { it.type == 0x02 }
@@ -212,7 +228,16 @@ class FreeBudsManager(private val device: BluetoothDevice) {
             sendFrame(Frame.build(0x01, 0x08, ping))
             sendFrame(Frame.build(0x2B, 0x2A, ping))
             sendFrame(Frame.build(0x2B, 0x4A, listOf(Tlv(0x02, byteArrayOf()))))
+            sendFrame(Frame.build(0x2B, 0xB4, listOf(Tlv(0x01, byteArrayOf(0x08)), Tlv(0x02, byteArrayOf()))))
         }
+    }
+
+    fun setEarTipType(type: EarTipType) {
+        DebugLog.d(LogTag.APP, "Set ear tips ${type.label}")
+        sendFrame(Frame.build(0x2B, 0xB4, listOf(
+            Tlv(0x01, byteArrayOf(0x08)),
+            Tlv(0x02, byteArrayOf(type.code.toByte()))
+        )))
     }
 
     fun setEqPreset(preset: EqPreset) {

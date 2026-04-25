@@ -5,6 +5,7 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import com.freebuddies.app.bluetooth.FreeBudsManager
 import com.freebuddies.app.protocol.*
 import kotlinx.coroutines.*
@@ -43,8 +44,12 @@ object FreeBudsConnectionManager {
             .stateIn(scope, SharingStarted.Eagerly, null)
 
     val ringingStatus: StateFlow<RingingStatus> =
-        _manager.flatMapLatest { it?.ringingStatus ?: flowOf(RingingStatus(false, false)) }
-            .stateIn(scope, SharingStarted.Eagerly, RingingStatus(false, false))
+        _manager.flatMapLatest { it?.ringingStatus ?: flowOf(RingingStatus(left = false, right = false)) }
+            .stateIn(scope, SharingStarted.Eagerly, RingingStatus(left = false, right = false))
+
+    val earTipType: StateFlow<EarTipType?> =
+        _manager.flatMapLatest { it?.earTipType ?: flowOf(null) }
+            .stateIn(scope, SharingStarted.Eagerly, null)
 
     val eqPreset: StateFlow<EqPreset?> =
         _manager.flatMapLatest { it?.eqPreset ?: flowOf(null) }
@@ -71,7 +76,7 @@ object FreeBudsConnectionManager {
 
     fun setPreferredNcIntensity(intensity: NcIntensity) {
         _preferredNcIntensity.value = intensity
-        prefs.edit().putInt("nc_intensity", intensity.code).apply()
+        prefs.edit { putInt("nc_intensity", intensity.code) }
     }
 
     fun startAutoReconnect(context: Context) {
@@ -156,6 +161,10 @@ object FreeBudsConnectionManager {
         _manager.value?.setRinging(side, active)
     }
 
+    fun setEarTipType(type: EarTipType) {
+        _manager.value?.setEarTipType(type)
+    }
+
     fun setEqPreset(preset: EqPreset) {
         _manager.value?.setEqPreset(preset)
     }
@@ -210,6 +219,6 @@ object FreeBudsConnectionManager {
             obj.put("bands", bands)
             arr.put(obj)
         }
-        prefs.edit().putString("custom_eq_profiles", arr.toString()).apply()
+        prefs.edit { putString("custom_eq_profiles", arr.toString()) }
     }
 }

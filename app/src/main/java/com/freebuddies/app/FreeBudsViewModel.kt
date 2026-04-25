@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import com.freebuddies.app.protocol.AncMode
 import com.freebuddies.app.protocol.CustomEqProfile
+import com.freebuddies.app.protocol.EarTipType
 import com.freebuddies.app.protocol.EqPreset
 import com.freebuddies.app.protocol.NcIntensity
 
@@ -16,6 +17,7 @@ class FreeBudsViewModel : ViewModel() {
     val ringingStatus = FreeBudsConnectionManager.ringingStatus
     val targetDevice = FreeBudsConnectionManager.targetDevice
     val preferredNcIntensity = FreeBudsConnectionManager.preferredNcIntensity
+    val earTipType = FreeBudsConnectionManager.earTipType
     val eqPreset = FreeBudsConnectionManager.eqPreset
     val eqPresetCode = FreeBudsConnectionManager.eqPresetCode
     val customEqProfiles = FreeBudsConnectionManager.customEqProfiles
@@ -32,6 +34,10 @@ class FreeBudsViewModel : ViewModel() {
 
     fun setRinging(side: Int, active: Boolean) {
         FreeBudsConnectionManager.setRinging(side, active)
+    }
+
+    fun setEarTipType(type: EarTipType) {
+        FreeBudsConnectionManager.setEarTipType(type)
     }
 
     fun setEqPreset(preset: EqPreset) {

@@ -4,10 +4,7 @@ import android.annotation.SuppressLint
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -17,6 +14,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.freebuddies.app.FreeBudsViewModel
 import com.freebuddies.app.protocol.AncMode
+import com.freebuddies.app.protocol.EarTipType
 import com.freebuddies.app.protocol.NcIntensity
 import com.freebuddies.app.protocol.WearState
 import com.freebuddies.app.ui.components.AncModeSelector
@@ -26,6 +24,7 @@ import com.freebuddies.app.ui.components.FbSurface
 import com.freebuddies.app.ui.components.FindBudToggle
 import com.freebuddies.app.ui.theme.*
 
+@OptIn(ExperimentalMaterial3Api::class)
 @SuppressLint("MissingPermission")
 @Composable
 fun HomeScreen(vm: FreeBudsViewModel, navController: NavController) {
@@ -36,8 +35,10 @@ fun HomeScreen(vm: FreeBudsViewModel, navController: NavController) {
     val ringingStatus by vm.ringingStatus.collectAsStateWithLifecycle(initialValue = null)
     val preferredIntensity by vm.preferredNcIntensity.collectAsStateWithLifecycle()
     val eqPreset by vm.eqPreset.collectAsStateWithLifecycle(initialValue = null)
+    val earTipType by vm.earTipType.collectAsStateWithLifecycle(initialValue = null)
 
     var pendingRingSide by remember { mutableIntStateOf(-1) }
+    var showEarTips by remember { mutableStateOf(false) }
 
     if (pendingRingSide >= 0) {
         AlertDialog(
@@ -59,14 +60,14 @@ fun HomeScreen(vm: FreeBudsViewModel, navController: NavController) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .padding(Dimens.ScreenPadding),
+        verticalArrangement = Arrangement.spacedBy(Dimens.SectionSpacing),
     ) {
         FbSurface {
             Text(
                 text = "status",
                 style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(bottom = 16.dp)
+                modifier = Modifier.padding(bottom = Dimens.TitleBottomPadding)
             )
             
             Row(
@@ -103,7 +104,7 @@ fun HomeScreen(vm: FreeBudsViewModel, navController: NavController) {
             Text(
                 text = "noise control",
                 style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(bottom = 16.dp)
+                modifier = Modifier.padding(bottom = Dimens.TitleBottomPadding)
             )
             val currentMode = soundControl?.mode ?: AncMode.OFF
             val currentIntensity = soundControl?.ncIntensity ?: NcIntensity.GENERAL
@@ -142,7 +143,7 @@ fun HomeScreen(vm: FreeBudsViewModel, navController: NavController) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(48.dp)
+                .height(Dimens.RowHeight)
                 .clip(MaterialTheme.shapes.medium)
                 .background(MaterialTheme.colorScheme.surface)
                 .clickable { navController.navigate("sound") }
@@ -162,11 +163,35 @@ fun HomeScreen(vm: FreeBudsViewModel, navController: NavController) {
             )
         }
 
+        // Ear tips link
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(Dimens.RowHeight)
+                .clip(MaterialTheme.shapes.medium)
+                .background(MaterialTheme.colorScheme.surface)
+                .clickable(enabled = isConnected) { showEarTips = true }
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = "ear tips",
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (isConnected) AccentTeal else OnDarkMuted,
+            )
+            Text(
+                text = earTipType?.label ?: "",
+                style = MaterialTheme.typography.labelMedium,
+                color = OnDarkMuted,
+            )
+        }
+
         FbSurface {
             Text(
                 text = "find my buds",
                 style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(bottom = 16.dp)
+                modifier = Modifier.padding(bottom = Dimens.TitleBottomPadding)
             )
             
             FindBudToggle(
@@ -198,6 +223,64 @@ fun HomeScreen(vm: FreeBudsViewModel, navController: NavController) {
                     color = OnDarkMuted,
                     modifier = Modifier.padding(bottom = 32.dp)
                 )
+            }
+        }
+    }
+
+    // Ear tips bottom sheet
+    if (showEarTips) {
+        ModalBottomSheet(
+            onDismissRequest = { showEarTips = false },
+            containerColor = Surface,
+            dragHandle = { BottomSheetDefaults.DragHandle(color = OnDarkFaint) },
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = "ear tips",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = OnDark,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                EarTipType.entries.forEach { type ->
+                    val isSelected = earTipType == type
+                    val bg = if (isSelected) AccentTeal.copy(alpha = 0.15f) else SurfaceVariant
+                    val textColor = if (isSelected) AccentTeal else OnDark
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(Dimens.RowHeightLarge)
+                            .clip(MaterialTheme.shapes.extraSmall)
+                            .background(bg)
+                            .clickable {
+                                vm.setEarTipType(type)
+                                showEarTips = false
+                            }
+                            .padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = type.label,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = textColor,
+                        )
+                        if (isSelected) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(MaterialTheme.shapes.extraSmall)
+                                    .background(AccentTeal)
+                            )
+                        }
+                    }
+                }
             }
         }
     }
