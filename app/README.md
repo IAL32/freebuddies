@@ -14,7 +14,7 @@ Every byte layout, TLV tag, and state transition described here was observed on 
 4. [TLV encoding](#4-tlv-encoding)
 5. [Command reference](#5-command-reference)
 6. [Android implementation guide](#6-android-implementation-guide)
-7. [Minimum viable feature set](#7-minimum-viable-feature-set)
+7. [Implemented feature set](#7-implemented-feature-set)
 8. [Known unknowns](#8-known-unknowns)
 9. [References](#9-references)
 
@@ -322,19 +322,24 @@ FreeBuds 4 Pro uses a different command pair than the 4i for *reading* ANC state
 
 | Tag | Type | Description |
 |-----|------|-------------|
-| 01 | 2 × uint8 | `[mode, intensity]`. `mode`: 0 = off, 1 = noise cancellation, 2 = awareness. `intensity`: NC sub-mode (0–3), ignored for off/awareness. |
+| 01 | 2 × uint8 | `[mode, intensity]`. `mode`: 0 = off, 1 = noise cancellation, 2 = awareness. `intensity`: see table below. |
 
-Mode values:
+**Mode switch vs level adjustment:** the second byte controls whether the buds play a voice announcement.
+
+- **Mode switch** — set intensity to `0xFF`. The firmware interprets this as a mode transition and plays the voice prompt ("Noise cancellation on", "Awareness mode", etc.). Exception: off is always `[0x00, 0x00]`.
+- **Level adjustment** — set intensity to the actual level (0–3 for NC, 1–2 for awareness). The firmware applies the level silently (no voice).
 
 | mode | intensity | Meaning |
 |------|-----------|---------|
 | 0 | 0 | Off (normal passthrough) |
-| 1 | 0 | NC — General |
-| 1 | 1 | NC — Cozy |
-| 1 | 2 | NC — Ultra |
-| 1 | 3 | NC — Dynamic |
-| 2 | 1 | Awareness — Voice mode |
-| 2 | 2 | Awareness — Normal |
+| 1 | 0xFF | NC — mode switch (voice) |
+| 1 | 0 | NC — General (silent) |
+| 1 | 1 | NC — Cozy (silent) |
+| 1 | 2 | NC — Ultra (silent) |
+| 1 | 3 | NC — Dynamic (silent) |
+| 2 | 0xFF | Awareness — mode switch (voice) |
+| 2 | 1 | Awareness — Voice mode (silent) |
+| 2 | 2 | Awareness — Normal (silent) |
 
 #### Notification / echo — `(0x2B, 0x5E)`
 
@@ -856,30 +861,35 @@ fun onFrame(frame: Frame) {
 
 ---
 
-## 7. Minimum viable feature set
+## 7. Implemented feature set
 
-A usable first version requires only these message handlers, which cover roughly 95% of what AI Life does:
+All message handlers implemented in the app. Features marked *(on demand)* are queried when the user opens the relevant screen, not on every connect.
 
 | Feature | Direction | Frame | Notes |
 |---------|-----------|-------|-------|
-| Identify device at connect | RX async | `(0x2B, 0x0A)` | The first received bundle provides model, serial, and firmware for an "About" screen. |
-| Show battery | RX async | `(0x01, 0x08)` or `(0x01, 0x27)` | Both should be handled — 0x08 is the initial snapshot, 0x27 is the push update. |
-| Force battery refresh | TX | `(0x01, 0x08)` with empty body | Only needed for a manual refresh button. |
-| Show wear state | RX async | `(0x2B, 0x25)` | Three states per bud: in-ear, out, in-case. Tags 01/02 = in-ear, Tags 03/04 = in-case. Battery frames (TLV 05) only carry in-ear, not in-case. |
-| Read current ANC mode | TX | `(0x2B, 0x2A)` with empty body | Called once after connect; then push updates maintain the state. |
-| Set ANC mode | TX | `(0x2B, 0x04)` with `TLV 01 = [mode, intensity]` | See §5.4. Mode: 0=off, 1=NC, 2=awareness. Intensity: NC sub-mode or awareness voice toggle. |
-| ANC change notification | RX async | `(0x2B, 0x5E)` | Pushed for both programmatic writes and user long-press on the bud. Keeps the UI in sync. |
-| Ring earbud | TX | `(0x2B, 0x5D)` with `TLV 01 = [side, action]` | See §5.6. Side: 0=left, 1=right. Action: 0=ring, 1=stop. |
-| Ring state notification | RX async | `(0x2B, 0x5E)` Tag 02 | Echoes ringing changes. Reports one side per notification. |
-| Read current EQ | TX | `(0x2B, 0x4A)` with `TLV 02 = (empty)` | Returns available presets in Tag 03 and current preset in Tag 02. |
-| Set EQ preset | TX | `(0x2B, 0x49)` with `TLV 01 = [preset_id]` | See §5.10. Ack via Tag 7F. |
-| Read/set ear tips | TX | `(0x2B, 0xB4)` with `TLV 01 = 0x08` | See §5.13. T02 empty to read, T02=[type] to write. Response echoes value. |
-| Read/set case tone | TX | `(0x2B, 0xB4)` with `TLV 01 = 0x0B` | See §5.14. T02 = tone on/off. Response includes T03/T04 for head gestures. |
-| Read/set head gestures | TX | `(0x2B, 0xB4)` with `TLV 01 = 0x0B` | See §5.14. T03 = nod action, T04 = shake action. |
-| Toggle head control | TX | `(0x2B, 0x6C)` with `TLV 01 = [0/1]` | See §5.15. Read via T02=(empty). |
-| Read low latency | TX | `(0x2B, 0xA3)` with empty body | See §5.16. Response T02 = on/off. |
-| Set low latency | TX | `(0x2B, 0xA2)` with `TLV 01 = [0/1]` | See §5.16. Triggers push via `(0x2B, 0xA3)`. |
-| Read wear detection | TX | `(0x2B, 0x11)` with `TLV 01 = (empty)` | See §5.17. Response T01 = on/off. |
+| Identify device at connect | RX async | `(0x2B, 0x0A)` | Model, serial, firmware for the settings screen. |
+| Extended device info | TX | `(0x01, 0x07)` | Full firmware string, bud serials, BT firmware ID. |
+| Show battery | RX async | `(0x01, 0x08)` or `(0x01, 0x27)` | 0x08 = initial snapshot, 0x27 = push update. |
+| Show wear state | RX async | `(0x2B, 0x25)` | Three states per bud: in-ear, out, in-case. |
+| Read current ANC mode | TX | `(0x2B, 0x2A)` with empty body | Called once after connect; push updates maintain state. |
+| Set ANC mode | TX | `(0x2B, 0x04)` with `TLV 01 = [mode, intensity]` | See §5.4. Use `0xFF` intensity for mode switches to trigger voice announcement. |
+| ANC legacy event | RX async | `(0x2B, 0x03)` | Physical button press on some models. Acked with `(0x2B, 0x2A)`. |
+| Ring earbud | TX | `(0x2B, 0x5D)` with `TLV 01 = [side, action]` | See §5.6. |
+| Ring / ANC notifications | RX async | `(0x2B, 0x5E)` | Tag 02 = ringing status. |
+| Read EQ + device presets | TX | `(0x2B, 0x4A)` with tags 1–8 empty | T02 = current, T03 = built-in IDs, T08 = device-stored custom presets (36B blocks). |
+| Set / save / delete EQ | TX | `(0x2B, 0x49)` | T01 = preset ID. Custom: T02=count, T03=data, T04=name, T05=action (1=save, 2=delete). |
+| Read/set ear tips | TX | `(0x2B, 0xB4)` T01=0x08 | T02 empty to read, T02=[type] to write. |
+| Read/set case tone + head gestures | TX | `(0x2B, 0xB4)` T01=0x0B | T02=tone, T03=nod, T04=shake. |
+| Toggle head control *(on demand)* | TX | `(0x2B, 0x6C)` T01=[0/1] | Read via T02=(empty). |
+| Read/set low latency | TX | `(0x2B, 0xA2)` / `(0x2B, 0xA3)` | See §5.16. |
+| Read/set wear detection | TX | `(0x2B, 0x10)` / `(0x2B, 0x11)` | T01=[0/1]. |
+| Set preferred device | TX | `(0x2B, 0x32)` T01=MAC | 6-byte BT addr. |
+| Paired device info | RX async | `(0x2B, 0x31)` | Device name, connection state, playback state. |
+| Voice language | TX | `(0x0C, 0x02)` read / `(0x0C, 0x01)` write | T01=current, T03=available locales. Write: T01=locale, T02=0x01. |
+| Double-tap config *(on demand)* | TX | `(0x01, 0x20)` read / `(0x01, 0x1F)` write | T01=left, T02=right. Actions: -1=off, 0=assistant, 1=play/pause, 2=next, 7=prev. |
+| Triple-tap config *(on demand)* | TX | `(0x01, 0x26)` read / `(0x01, 0x25)` write | Same structure as double-tap. |
+| Long-tap ANC cycle *(on demand)* | TX | `(0x2B, 0x17)` read / `(0x2B, 0x16)` write | T01=left, T02=right. Codes: -1=off, 3=Off↔NC, 5=Off↔NC↔Aw, 6=NC↔Aw, 9=Off↔Aw. |
+| Swipe gesture *(on demand)* | TX | `(0x2B, 0x1F)` read / `(0x2B, 0x1E)` write | T01=action, T02=action. 0=volume, -1=off. |
 
 ---
 
@@ -894,13 +904,23 @@ Areas that require further reverse engineering:
 - **`(0x2B, 0x8F)`** — Polled by AI Life every ~3s on the earbud settings screen. Always `T01=(empty)` query, `T7F=000186A3` response. Likely signal quality monitoring.
 - **`(0x2B, 0x42)`** — Queried on screen init. Response `T01=00`. Purpose unknown.
 - **`(0x2B, 0xB3)`** — Large initialization payload sent by AI Life on connect (16+ tags). Purpose unknown.
-- **`(0x2B, 0x37)` and `(0x01, 0x26)`** — Sent by the phone once each, no visible effect. Unresearched.
-- **Custom EQ band mapping** — The 10-byte EQ curve in `(0x2B, 0x49)` Tag 03 uses a signed byte per band, but the exact internal scale (how dB maps to byte values) needs calibration with isolated single-band changes.
+- **`(0x2B, 0x37)`** — Sent by the phone once, no visible effect. Unresearched.
 - **Firmware update protocol** — Not researched. Huawei firmware is signed, so custom flashing is not realistic.
-- **Gesture config (`(0x01, 0x20)` / `(0x01, 0x1F)`)** — Inherited from the 4i reference, not exercised in captures. Likely works identically but has not been verified on FreeBuds 4 Pro.
-- **Voice language (`(0x0C, 0x01)` / `(0x0C, 0x02)`)** — Same status as gesture config: 4i reference exists, not verified on FreeBuds 4 Pro.
 
 Investigation approach: pair the buds with AI Life, start `btsnoop` logging in developer options, toggle one setting, and diff the resulting frames. For binary analysis, use `analysis/parse_btsnoop.py` to decode btsnoop HCI logs directly.
+
+### Resolved via OpenFreebuds
+
+The following were previously listed as unknowns and have been documented via OpenFreebuds source analysis.
+
+- **Gesture config (`(0x01, 0x20)` / `(0x01, 0x1F)`)** — Double-tap action per side. Also `(0x01, 0x26)` / `(0x01, 0x25)` for triple-tap. Both confirmed working on FreeBuds 4i/5i/Pro families.
+- **`(0x01, 0x26)`** — Triple-tap gesture read (previously listed as "sent once, no visible effect"). Same structure as double-tap.
+- **Voice language (`(0x0C, 0x01)` / `(0x0C, 0x02)`)** — `0x0C02` reads available languages (T01 = current, T03 = locale list), `0x0C01` sets the language. Implemented but **FreeBuds 4 Pro ignores the write command** — the language may be firmware-locked on this model.
+- **ANC legacy event `(0x2B, 0x03)`** — Sent by some models on physical long-press. Acked with `(0x2B, 0x2A)` T01=empty. FreeBuds 4 Pro does not use this — voice announcements are triggered by the 0xFF intensity byte in the `(0x2B, 0x04)` write (see §5.4).
+- **Long-tap config `(0x2B, 0x17)` / `(0x2B, 0x16)`** — Configure which ANC modes the long-press cycles through. Split variant: `(0x2B, 0x19)` / `(0x2B, 0x18)` for the ANC cycle list.
+- **Swipe gesture `(0x2B, 0x1F)` / `(0x2B, 0x1E)`** — Enable/disable swipe-to-change-volume.
+- **Dual connect `(0x2B, 0x2E)` / `(0x2B, 0x2F)`** — Enable/disable dual-connect feature. Enumerate via `(0x2B, 0x31)`, execute commands via `(0x2B, 0x33)`.
+- **Device-stored EQ presets** — `(0x2B, 0x4A)` T08 carries 36-byte blocks of custom presets stored on the buds (ID + bands + name). Write/delete via `(0x2B, 0x49)` T05 action field.
 
 ---
 
@@ -925,10 +945,12 @@ TLV     TT | LL | VV...
         tag len   value
 
 SERVICES
-  0x01  SYSTEM   (battery, device info, language, gestures)
-  0x2B  DEVICE   (ANC, in-ear, per-device settings)
+  0x01  SYSTEM   (battery, device info, language, tap gestures)
+  0x0C  LANGUAGE (voice prompt language)
+  0x2B  DEVICE   (ANC, in-ear, EQ, gestures, dual-connect)
 
-ESSENTIAL COMMANDS
+IMPLEMENTED COMMANDS
+  TX  (0x01,0x07)  Get system info            → reply (0x01,0x07)
   TX  (0x01,0x08)  Get battery               → reply (0x01,0x08)
   RX  (0x01,0x27)  Battery push notification
   RX  (0x2B,0x0A)  Device info (auto on connect)
@@ -950,6 +972,25 @@ ESSENTIAL COMMANDS
   RX  (0x2B,0x31)  Audio source info (device name + state)
   RX  (0x2B,0x36)  Playback state (double-tap)
   RX  (0x2B,0x4B)  Volume gesture (swipe up/down)
+  TX  (0x0C,0x02)  Get voice languages        → reply T01=current, T03=locale list
+  TX  (0x0C,0x01)  Set voice language          → T01=locale, T02=0x01
+
+  TX  (0x01,0x20)  Get double-tap config       → T01=L, T02=R, T03=options
+  TX  (0x01,0x1F)  Set double-tap action       → T01/T02=[action]
+  TX  (0x01,0x26)  Get triple-tap config       → same layout as double-tap
+  TX  (0x01,0x25)  Set triple-tap action       → same layout as double-tap
+  TX  (0x2B,0x17)  Get long-tap config         → T01=L, T02=R, T03=options
+  TX  (0x2B,0x16)  Set long-tap action         → T01/T02=[cycle code]
+  TX  (0x2B,0x1F)  Get swipe gesture           → T01=action, T03=options
+  TX  (0x2B,0x1E)  Set swipe gesture           → T01=action, T02=action
+  RX  (0x2B,0x03)  ANC legacy change event     → ack (0x2B,0x2A) T01=empty
+
+NOT YET IMPLEMENTED (from OpenFreebuds)
+  TX  (0x2B,0x19)  Get ANC cycle list (split)  → T01=L, T02=R, T03=options
+  TX  (0x2B,0x18)  Set ANC cycle list (split)  → T01/T02=[cycle code]
+  TX  (0x2B,0x2F)  Get dual-connect state      → T01: 0=off, 1=on
+  TX  (0x2B,0x2E)  Set dual-connect state      → T01: 0=off, 1=on
+  TX  (0x2B,0x33)  Device cmd (connect/unpair) → T[cmd]=MAC (6 bytes)
 
 BATTERY TLVs
   01  uint8     aggregate %
@@ -963,6 +1004,8 @@ ANC ENCODING
     mode: 0=off  1=NC  2=awareness
     NC intensity: 0=general  1=cozy  2=ultra  3=dynamic
     Awareness:    1=voice mode  2=normal
+  Mode switch: use 0xFF as intensity to trigger voice announcement
+    off=[0x00,0x00]  NC=[0x01,0xFF]  awareness=[0x02,0xFF]
 
 FIND MY BUDS (write via 0x2B,0x5D / notify via 0x2B,0x5E Tag 02)
   TLV 01 value [side, action]  (write)
@@ -1004,4 +1047,47 @@ WEAR DETECTION
 
 PREFERRED DEVICE (0x2B,0x32)
   TLV 01: 6-byte BT addr, or 000000000000=auto  → ack T7F
+
+VOICE LANGUAGE
+  Read  (0x0C,0x02) T01=(empty) T02=(empty) → T01=current, T03=UTF-8 locale list
+  Write (0x0C,0x01) T01=locale(UTF-8) T02=0x01
+  Note: FreeBuds 4 Pro ignores the write — language may be firmware-locked
+
+ANC LEGACY EVENT (0x2B,0x03)
+  RX  T01=[mode]  (0=off 1=NC 2=awareness)
+  Ack with (0x2B,0x2A) T01=(empty)
+  Note: FreeBuds 4 Pro does not use this — voice is triggered by 0xFF byte
+
+DOUBLE TAP (read 0x01,0x20 / write 0x01,0x1F)
+  T01=left action  T02=right action  T03=available  T04=in-call
+    -1=off  0=assistant  1=play/pause  2=next  7=prev
+    In-call: -1=off  0=answer
+
+TRIPLE TAP (read 0x01,0x26 / write 0x01,0x25)
+  Same structure and action codes as double tap
+
+LONG TAP (read 0x2B,0x17 / write 0x2B,0x16)
+  T01=left  T02=right  T03=available
+    -1=off  3=Off↔NC  5=Off↔NC↔Aw  6=NC↔Aw  9=Off↔Aw
+
+SWIPE GESTURE (read 0x2B,0x1F / write 0x2B,0x1E)
+  T01=action  T03=available
+  Write: T01=action T02=action (duplicate)
+    -1=off  0=change volume
+
+DEVICE-STORED CUSTOM EQ (via existing 0x2B,0x4A / 0x2B,0x49)
+  Read T08: 36 bytes per custom preset:
+    [0]=ID  [1]=band_count  [2-11]=EQ data(signed)  [12-35]=name(UTF-8)
+  Write with action: T01=ID  T02=count  T03=data  T04=name  T05=action
+    action: 1=save&apply  2=delete
+
+--- Not yet implemented (from OpenFreebuds) ---
+
+LONG TAP SPLIT VARIANT (newer devices only)
+  ANC list (0x2B,0x19/0x18): 1=Off↔NC  2=Off↔NC↔Aw  3=NC↔Aw  4=Off↔Aw
+
+DUAL CONNECT
+  Enable  (0x2B,0x2F) read / (0x2B,0x2E) write: T01=0/1
+  Execute  (0x2B,0x33) T[cmd]=MAC(6B)
+    cmd: 1=connect  2=disconnect  3=unpair  4=enable-auto  5=disable-auto
 ```
