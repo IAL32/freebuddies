@@ -1,5 +1,6 @@
 package com.freebuddies.app.tile
 
+import android.app.AlertDialog
 import android.graphics.drawable.Icon
 import android.os.Build
 import android.service.quicksettings.Tile
@@ -52,17 +53,26 @@ class FindBudsTileService : TileService() {
             // Optimistic update — buds may not send a stop confirmation
             updateTileState(true, RingingStatus(false, false))
         } else {
-            FreeBudsConnectionManager.setRinging(0, true)
-            FreeBudsConnectionManager.setRinging(1, true)
-            // Optimistic update
-            updateTileState(true, RingingStatus(true, true))
-            autoStopJob?.cancel()
-            autoStopJob = scope.launch {
-                delay(45_000)
-                FreeBudsConnectionManager.setRinging(0, false)
-                FreeBudsConnectionManager.setRinging(1, false)
-                updateTileState(true, RingingStatus(false, false))
-            }
+            val dialog = AlertDialog.Builder(this)
+                .setTitle("Start ringing?")
+                .setMessage("This will play a loud sound on the earbuds. Remove them from your ears first.")
+                .setPositiveButton("Ring") { _, _ -> startRinging() }
+                .setNegativeButton("Cancel", null)
+                .create()
+            showDialog(dialog)
+        }
+    }
+
+    private fun startRinging() {
+        FreeBudsConnectionManager.setRinging(0, true)
+        FreeBudsConnectionManager.setRinging(1, true)
+        updateTileState(true, RingingStatus(true, true))
+        autoStopJob?.cancel()
+        autoStopJob = scope.launch {
+            delay(45_000)
+            FreeBudsConnectionManager.setRinging(0, false)
+            FreeBudsConnectionManager.setRinging(1, false)
+            updateTileState(true, RingingStatus(false, false))
         }
     }
 

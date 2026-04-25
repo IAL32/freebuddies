@@ -1,8 +1,8 @@
-# Huawei FreeBuds 4 Pro — SPP Protocol Reference
+# FreeBuddies — SPP Protocol Reference
 
-Reverse-engineered protocol notes for building an Android companion app for the Huawei FreeBuds 4 Pro (model `T0022` / `T0022C`). Derived from a Wireshark capture of AI Life ↔ buds traffic, cross-referenced with MelianMiko's FreeBuds 4i research and Gadgetbridge issue #4241.
+Reverse-engineered protocol documentation for the Huawei FreeBuds 4 Pro (model `T0022` / `T0022C`). Derived from Wireshark captures of AI Life ↔ buds traffic, cross-referenced with MelianMiko's FreeBuds 4i research and Gadgetbridge issue #4241.
 
-This document is the spec. Every byte layout, TLV tag, and state transition below was observed on the wire.
+Every byte layout, TLV tag, and state transition described here was observed on the wire.
 
 ---
 
@@ -25,13 +25,13 @@ This document is the spec. Every byte layout, TLV tag, and state transition belo
 The buds expose a standard Bluetooth **RFCOMM Serial Port Profile** channel.
 
 - **SPP service UUID:** `00001101-0000-1000-8000-00805F9B34FB`
-- **RFCOMM channel:** discovered via SDP (channel 1 in the capture, but do not hard-code — always resolve via SDP)
+- **RFCOMM channel:** discovered via SDP (channel 1 in the capture, but should not be hard-coded — always resolve via SDP)
 - **Direction:** full duplex, byte stream
 - **Framing:** Huawei MDN protocol (see §2)
 
-The buds must already be paired and connected (A2DP/HFP established) before the SPP channel becomes reachable. On Android, connect using `BluetoothDevice.createRfcommSocketToServiceRecord(UUID)`.
+The buds must already be paired and connected (A2DP/HFP established) before the SPP channel becomes reachable. On Android, connections are made using `BluetoothDevice.createRfcommSocketToServiceRecord(UUID)`.
 
-Do **not** attempt to read battery via the HFP vendor AT channel. The buds reply `ERROR` to `AT+HUAWEIBATTERY=?`, `AT+XHUAWEISF=?`, and `AT+TBSF=?`. All diagnostics flow over SPP.
+Battery information is **not** available via the HFP vendor AT channel. The buds reply `ERROR` to `AT+HUAWEIBATTERY=?`, `AT+XHUAWEISF=?`, and `AT+TBSF=?`. All diagnostics flow over SPP.
 
 ---
 
@@ -67,7 +67,7 @@ Every frame — in both directions — has this layout:
 ```
 5A 00 06 00 01 08 00 00 XX XX
 │  └───┬──┘ │  └─┬─┘ └─┬─┘ └─┬─┘
-│      │    │    │     │     └─ CRC16-XM (compute over everything before)
+│      │    │    │     │     └─ CRC16-XM (computed over everything before)
 │      │    │    │     └─────── (no TLVs — single empty TLV would be 00 00,
 │      │    │    │               here literally two zero bytes as seen in the wild)
 │      │    │    └───────────── cmd_id = 0x08 (GET_BATTERY)
@@ -136,7 +136,7 @@ object Crc16Xmodem {
 }
 ```
 
-Verify against a known-good frame from the capture before trusting it:
+Verification against a known-good frame from the capture:
 
 ```
 5A 00 05 00 2B 2A 01 00  →  CRC must be 0x427E
@@ -146,7 +146,7 @@ Verify against a known-good frame from the capture before trusting it:
 
 ## 4. TLV encoding
 
-The payload section is zero or more Type-Length-Value records, concatenated without any separator or count:
+The payload section consists of zero or more Type-Length-Value records, concatenated without any separator or count:
 
 ```
 ┌──────┬──────┬─────────────┐
@@ -196,7 +196,7 @@ fun encodeTlvs(tlvs: List<Tlv>): ByteArray {
 
 ## 5. Command reference
 
-Commands are identified by the `(svc_id, cmd_id)` pair. Service IDs observed:
+Commands are identified by the `(svc_id, cmd_id)` pair. Observed service IDs:
 
 - `0x01` — SYSTEM (device info, battery, language, gesture actions)
 - `0x2B` — DEVICE (ANC, in-ear state, per-device config)
@@ -205,7 +205,7 @@ Commands are identified by the `(svc_id, cmd_id)` pair. Service IDs observed:
 
 #### Request — `(0x01, 0x07)` or `(0x2B, 0x0A)`
 
-The buds broadcast a device-info bundle under `(0x2B, 0x0A)` shortly after the RFCOMM channel is established. You can also request it explicitly. Both responses carry the same TLV layout.
+The buds broadcast a device-info bundle under `(0x2B, 0x0A)` shortly after the RFCOMM channel is established. It can also be requested explicitly. Both responses carry the same TLV layout.
 
 **Request payload:** empty (no TLVs).
 
@@ -220,17 +220,17 @@ The buds broadcast a device-info bundle under `(0x2B, 0x0A)` shortly after the R
 | 05 | ASCII string | Color / SKU code | `ZAAM` |
 | 06 | ASCII string | Firmware version | `1.0.0.x` |
 
-Model code `T0022/T0022C` is the canonical identifier for FreeBuds 4 Pro. Use it to reject frames from other Huawei audio devices if your app targets FreeBuds 4 Pro specifically.
+Model code `T0022/T0022C` is the canonical identifier for FreeBuds 4 Pro. It can be used to reject frames from other Huawei audio devices if the app targets FreeBuds 4 Pro specifically.
 
-### 5.2 Battery status ⭐
+### 5.2 Battery status
 
-This is the command that matters most for a companion app.
+The most important command for a companion app.
 
 #### Request — `(0x01, 0x08)`
 
 **Payload:** empty.
 
-In practice you rarely need to poll. The buds push updates autonomously via `(0x01, 0x27)` whenever battery, charging, or wear state changes.
+In practice, polling is rarely needed. The buds push updates autonomously via `(0x01, 0x27)` whenever battery, charging, or wear state changes.
 
 #### Response — `(0x01, 0x08)` (reply) / `(0x01, 0x27)` (push notification)
 
@@ -282,22 +282,28 @@ data class BatteryStatus(
 
 #### Notification — `(0x2B, 0x25)`
 
-Pushed by the buds whenever a bud is inserted or removed. No request needed.
+Pushed by the buds whenever a bud is inserted, removed, or placed in the case. No request needed.
 
 | Tag | Type | Description |
 |-----|------|-------------|
-| 01 | uint8 | Left bud in-ear. `0` = out, `1` = in. |
-| 02 | uint8 | Reserved. Always `0x00` in capture. |
-| 03 | uint8 | Reserved. Always `0x00` in capture. |
-| 04 | uint8 | Right bud in-ear. `0` = out, `1` = in. |
+| 01 | uint8 | Left bud **in-ear**. `0` = not worn, `1` = worn. |
+| 02 | uint8 | Right bud **in-ear**. `0` = not worn, `1` = worn. |
+| 03 | uint8 | Left bud **in-case**. `0` = not in case, `1` = in case. |
+| 04 | uint8 | Right bud **in-case**. `0` = not in case, `1` = in case. |
 
-**Note the indexing:** left is tag 01, right is tag 04 (not 02). Tags 02 and 03 appear reserved for a four-bud topology that FreeBuds 4 Pro doesn't use.
+Each bud has three possible states derived from these two flags:
+
+| State | in-ear tag | in-case tag |
+|-------|-----------|-------------|
+| In ear (worn) | `1` | `0` |
+| Out (not worn, not in case) | `0` | `0` |
+| In case | `0` | `1` |
 
 ### 5.4 Sound control (ANC / Awareness)
 
-FreeBuds 4 Pro uses a different command pair than the 4i for *reading* ANC state. However, writing ANC mode via `(0x2B, 0x04)` — the same command used on the 4i — works on FreeBuds 4 Pro. The earlier assumption that `0x04` was only an echo/ack was incorrect; it accepts writes with TLV Tag 01.
+FreeBuds 4 Pro uses a different command pair than the 4i for *reading* ANC state. However, writing ANC mode via `(0x2B, 0x04)` — the same command used on the 4i — works on FreeBuds 4 Pro. An earlier assumption that `0x04` was only an echo/ack was incorrect; it accepts writes with TLV Tag 01.
 
-**Note:** `(0x2B, 0x5D)` is now used for **Find My Buds** ringing (see §5.6). Do not send ANC writes to `0x5D` — use `0x04` instead.
+**Note:** `(0x2B, 0x5D)` is used for **Find My Buds** ringing (see §5.6), not ANC writes. ANC writes go to `0x04`.
 
 #### Write — `(0x2B, 0x04)`
 
@@ -327,7 +333,7 @@ Pushed on ringing state changes (see §5.6). May also appear near ANC changes. T
 
 #### Read — `(0x2B, 0x2A)`
 
-Returns the current mode. Response carries tag `01` with 2 bytes: `[intensity, mode]` — **note the byte order is swapped compared to the write command**. The second byte is the ANC mode (`0` = off, `1` = NC, `2` = awareness). The first byte is the sub-mode: for NC it's the intensity (`0` = general, `1` = cozy, `2` = ultra, `3` = dynamic); for awareness it's the voice toggle (`1` = voice mode, `2` = normal). Observed combinations: `00 00` (off), `00 01` (NC general), `01 01` (NC cozy), `01 02` (awareness voice), `02 01` (NC ultra), `02 02` (awareness normal), `03 01` (NC dynamic).
+Returns the current mode. The response carries tag `01` with 2 bytes: `[intensity, mode]` — **note the byte order is swapped compared to the write command**. The second byte is the ANC mode (`0` = off, `1` = NC, `2` = awareness). The first byte is the sub-mode: for NC it's the intensity (`0` = general, `1` = cozy, `2` = ultra, `3` = dynamic); for awareness it's the voice toggle (`1` = voice mode, `2` = normal). Observed combinations: `00 00` (off), `00 01` (NC general), `01 01` (NC cozy), `01 02` (awareness voice), `02 01` (NC ultra), `02 02` (awareness normal), `03 01` (NC dynamic).
 
 ### 5.5 Preferred ANC cycle list
 
@@ -354,11 +360,11 @@ Cycle-option values (from 4i reference, may extend on FreeBuds 4 Pro):
 
 #### Write — `(0x2B, 0x18)`
 
-Same TLV layout as the read. Note: writing tag 01 or tag 02 may copy to the other bud — the FreeBuds 4i docs flag this behavior and it likely applies here too. Test before assuming independent per-bud cycles.
+Same TLV layout as the read. Note: writing tag 01 or tag 02 may copy to the other bud — the FreeBuds 4i docs flag this behavior and it likely applies here as well. Independent per-bud cycles should be verified before relying on them.
 
 ### 5.6 Find My Buds (ringing)
 
-Triggers an audible alert on an individual earbud to help locate it. The write command shares the same `(0x2B, 0x5D)` service/command pair as sound control, but uses a different TLV encoding (side + action instead of enabled + mode). The notification channel `(0x2B, 0x5E)` is also shared — ringing status arrives in **Tag 02**, while sound-control status arrives in **Tag 01**.
+Triggers an audible alert on an individual earbud to help locate it. The write command uses the `(0x2B, 0x5D)` service/command pair with a TLV encoding of side + action. The notification channel `(0x2B, 0x5E)` is shared with sound control — ringing status arrives in **Tag 02**, while sound-control status arrives in **Tag 01**.
 
 #### Write — `(0x2B, 0x5D)`
 
@@ -375,17 +381,17 @@ The four combinations:
 | 1 | 0 | Ring right earbud |
 | 1 | 1 | Stop ringing right earbud |
 
-Each side is controlled independently — ringing one earbud does not affect the other. To ring both, send two separate commands.
+Each side is controlled independently — ringing one earbud does not affect the other. Ringing both requires two separate commands.
 
 #### Notification — `(0x2B, 0x5E)` Tag 02
 
-Pushed whenever ringing state changes on either bud, including as an echo of your write.
+Pushed whenever ringing state changes on either bud, including as an echo of a write.
 
 | Tag | Type | Description |
 |-----|------|-------------|
 | 02 | 2 × uint8 | `[side, action]`. Same encoding as the write: `side` 0=left / 1=right, `action` 0=ringing / 1=stopped. |
 
-**Important:** The `(0x2B, 0x5E)` notification can carry **both** Tag 01 (sound control) and Tag 02 (ringing) in the same frame. Parse both tags independently.
+**Important:** The `(0x2B, 0x5E)` notification can carry **both** Tag 01 (sound control) and Tag 02 (ringing) in the same frame. Both tags should be parsed independently.
 
 #### Kotlin decoder
 
@@ -408,7 +414,7 @@ data class RingingStatus(
 }
 ```
 
-**Note:** The ringing status is updated incrementally — each notification reports one side at a time, so you must merge it with the current state rather than replacing it.
+**Note:** The ringing status is updated incrementally — each notification reports one side at a time, so it must be merged with the current state rather than replaced.
 
 ### 5.7 Playback state (double-tap gesture)
 
@@ -478,8 +484,8 @@ The volume step values correspond to Android system media volume levels. The ran
 
 | svc cmd | Seen | Notes |
 |---------|------|-------|
-| `(0x2B, 0x04)` | TX / RX | **ANC write command** (confirmed). Send TLV Tag 01 = `[enabled, mode]` to set the ANC state. The buds reply with TLV Tag 02 = `0x00` on success, non-zero on rejection. Also used as the ANC write on the 4i — the original assumption that it moved to `0x5D` on FreeBuds 4 Pro was incorrect; `0x5D` is used for Find My Buds (§5.6). |
-| `(0x2B, 0x5F)` | RX rare | `TLV 01 = 0x00`. Appeared once near ANC state changes. Possibly a secondary sound attribute (wind noise? voice boost?). **Unidentified — don't ship code that depends on it.** |
+| `(0x2B, 0x04)` | TX / RX | **ANC write command** (confirmed). TLV Tag 01 = `[enabled, mode]` sets the ANC state. The buds reply with TLV Tag 02 = `0x00` on success, non-zero on rejection. Also used as the ANC write on the 4i — the original assumption that it moved to `0x5D` on FreeBuds 4 Pro was incorrect; `0x5D` is used for Find My Buds (§5.6). |
+| `(0x2B, 0x5F)` | RX rare | `TLV 01 = 0x00`. Appeared once near ANC state changes. Possibly a secondary sound attribute (wind noise? voice boost?). **Unidentified — not reliable enough to depend on.** |
 | `(0x2B, 0x37)` | TX once | Sent with `TLV 01 = 0x00`. One parameter, value 0. Unresearched. |
 | `(0x01, 0x26)` | TX once | `TLV 01 = 0x00`, `TLV 02 = 0x00`. Unresearched. |
 
@@ -504,7 +510,7 @@ The volume step values correspond to Android system media volume levels. The ran
     android:maxSdkVersion="30" />
 ```
 
-Runtime-request `BLUETOOTH_CONNECT` before touching any `BluetoothDevice` API on Android 12+.
+`BLUETOOTH_CONNECT` must be runtime-requested before touching any `BluetoothDevice` API on Android 12+.
 
 ### 6.2 Connection lifecycle
 
@@ -545,7 +551,7 @@ class FreeBudsConnection(private val device: BluetoothDevice) {
 
 ### 6.3 Stream framer
 
-SPP is a byte stream. Frames may arrive split across reads or concatenated. You need a stateful framer:
+SPP is a byte stream. Frames may arrive split across reads or concatenated, so a stateful framer is required:
 
 ```kotlin
 class FrameReader {
@@ -572,7 +578,7 @@ class FrameReader {
             if (frame != null) frames += frame
             i += totalSize
         }
-        // Re-buffer any tail we didn't consume
+        // Re-buffer any tail that wasn't consumed
         if (i < bytes.size) buf.write(bytes, i, bytes.size - i)
         return frames
     }
@@ -625,7 +631,7 @@ socket.outputStream.write(setAncAwareness)
 
 ### 6.5 Dispatch
 
-Route incoming frames by `(service, command)`:
+Incoming frames are routed by `(service, command)`:
 
 ```kotlin
 fun onFrame(frame: Frame) {
@@ -657,26 +663,26 @@ fun onFrame(frame: Frame) {
 
 ### 6.6 Threading notes
 
-- The reader thread blocks on `InputStream.read()`. Run it off the main thread.
-- Writes are synchronous but fast. For safety, serialize writes through a single thread or an `Actor`/`Channel`.
-- Post decoded state to a `StateFlow` or `LiveData` for the UI layer to observe.
-- Don't close the socket from inside the reader thread — signal and let the owner close it.
+- The reader thread blocks on `InputStream.read()` and should run off the main thread.
+- Writes are synchronous but fast. For safety, they should be serialized through a single thread or an `Actor`/`Channel`.
+- Decoded state can be posted to a `StateFlow` or `LiveData` for the UI layer to observe.
+- The socket should not be closed from inside the reader thread — the owner should signal and close it externally.
 
 ---
 
 ## 7. Minimum viable feature set
 
-For a usable first version, implement just these six message handlers. This covers roughly 95% of what AI Life does.
+A usable first version requires only these message handlers, which cover roughly 95% of what AI Life does:
 
 | Feature | Direction | Frame | Notes |
 |---------|-----------|-------|-------|
-| Identify device at connect | RX async | `(0x2B, 0x0A)` | Trust the first one you see; display model + serial + firmware in an "About" screen. |
-| Show battery | RX async | `(0x01, 0x08)` or `(0x01, 0x27)` | Subscribe to both — 0x08 is the initial snapshot, 0x27 is push. |
-| Force battery refresh | TX | `(0x01, 0x08)` with empty body | Only needed if the UI wants a manual refresh button. |
-| Show in-ear state | RX async | `(0x2B, 0x25)` | Also present as TLV 05 in battery frames. Either source works. |
-| Read current ANC mode | TX | `(0x2B, 0x2A)` with empty body | Call once after connect; then rely on push updates. |
+| Identify device at connect | RX async | `(0x2B, 0x0A)` | The first received bundle provides model, serial, and firmware for an "About" screen. |
+| Show battery | RX async | `(0x01, 0x08)` or `(0x01, 0x27)` | Both should be handled — 0x08 is the initial snapshot, 0x27 is the push update. |
+| Force battery refresh | TX | `(0x01, 0x08)` with empty body | Only needed for a manual refresh button. |
+| Show wear state | RX async | `(0x2B, 0x25)` | Three states per bud: in-ear, out, in-case. Tags 01/02 = in-ear, Tags 03/04 = in-case. Battery frames (TLV 05) only carry in-ear, not in-case. |
+| Read current ANC mode | TX | `(0x2B, 0x2A)` with empty body | Called once after connect; then push updates maintain the state. |
 | Set ANC mode | TX | `(0x2B, 0x04)` with `TLV 01 = [mode, intensity]` | See §5.4. Mode: 0=off, 1=NC, 2=awareness. Intensity: NC sub-mode or awareness voice toggle. |
-| ANC change notification | RX async | `(0x2B, 0x5E)` | Pushed both for your writes and for user long-press on the bud. Keep UI in sync. |
+| ANC change notification | RX async | `(0x2B, 0x5E)` | Pushed for both programmatic writes and user long-press on the bud. Keeps the UI in sync. |
 | Ring earbud | TX | `(0x2B, 0x5D)` with `TLV 01 = [side, action]` | See §5.6. Side: 0=left, 1=right. Action: 0=ring, 1=stop. |
 | Ring state notification | RX async | `(0x2B, 0x5E)` Tag 02 | Echoes ringing changes. Reports one side per notification. |
 
@@ -684,22 +690,22 @@ For a usable first version, implement just these six message handlers. This cove
 
 ## 8. Known unknowns
 
-Things that need more reverse engineering before they can ship:
+Areas that require further reverse engineering:
 
-- **`(0x2B, 0x5F)`.** Seen once near an ANC change. Likely a secondary sound attribute.
-- **`(0x2B, 0xAC)`.** Pushed after `(0x2B, 0x2A)` on connect. Carries 9 discrete tags (T1–T9), mostly zeros. Not an ANC state update — do not use it to update sound control. Possibly ANC capability or configuration info.
-- **`(0x2B, 0x37)` and `(0x01, 0x26)`.** Sent by the phone once each, no visible effect. Worth probing with the AI Life app open and a Wireshark capture running while toggling each setting.
-- **Firmware update protocol.** Not researched. Huawei firmware is signed so custom flashing isn't realistic anyway — skip this.
-- **Gesture config (`(0x01, 0x20)` / `(0x01, 0x1F)`).** Inherited from the 4i reference, not exercised in this capture. Likely works identically but verify before trusting it on FreeBuds 4 Pro.
-- **Voice language (`(0x0C, 0x01)` / `(0x0C, 0x02)`).** Same — 4i reference exists, not verified on FreeBuds 4 Pro.
+- **`(0x2B, 0x5F)`** — Seen once near an ANC change. Likely a secondary sound attribute.
+- **`(0x2B, 0xAC)`** — Pushed after `(0x2B, 0x2A)` on connect. Carries 9 discrete tags (T1–T9), mostly zeros. Not an ANC state update. Possibly ANC capability or configuration info.
+- **`(0x2B, 0x37)` and `(0x01, 0x26)`** — Sent by the phone once each, no visible effect. Worth probing with the AI Life app open and a Wireshark capture running while toggling each setting.
+- **Firmware update protocol** — Not researched. Huawei firmware is signed, so custom flashing is not realistic.
+- **Gesture config (`(0x01, 0x20)` / `(0x01, 0x1F)`)** — Inherited from the 4i reference, not exercised in captures. Likely works identically but has not been verified on FreeBuds 4 Pro.
+- **Voice language (`(0x0C, 0x01)` / `(0x0C, 0x02)`)** — Same status as gesture config: 4i reference exists, not verified on FreeBuds 4 Pro.
 
-To investigate: pair the buds with AI Life, start `btsnoop` logging in developer options, toggle one setting, diff the resulting frames.
+Investigation approach: pair the buds with AI Life, start `btsnoop` logging in developer options, toggle one setting, and diff the resulting frames.
 
 ---
 
 ## 9. References
 
-- **MelianMiko — FreeBuds 4i protocol.** Closest documented relative. Most TLV conventions and the CRC algorithm come from here. <https://mmk.pw/en/posts/freebuds-4i-proto/>
+- **MelianMiko — FreeBuds 4i protocol.** Closest documented relative. Most TLV conventions and the CRC algorithm originate from here. <https://mmk.pw/en/posts/freebuds-4i-proto/>
 - **TheLastGimbus — FreeBuddy mbb-protocol notes.** Original source for the CRC16-XModem identification. <https://github.com/TheLastGimbus/FreeBuddy/blob/master/notes/mbb-protocol-wiki.md>
 - **Gadgetbridge issue #4241** (FreeBuds 5i). Confirms frame structure `5A [len] 00 [svc cmd] [TLV...] [CRC]`. <https://codeberg.org/Freeyourgadget/Gadgetbridge/issues/4241>
 - **OpenFreebuds.** Desktop/mobile open-source implementation for related devices; useful reference for command semantics. <https://github.com/melianmiko/OpenFreebuds>
@@ -725,7 +731,7 @@ ESSENTIAL COMMANDS
   TX  (0x01,0x08)  Get battery               → reply (0x01,0x08)
   RX  (0x01,0x27)  Battery push notification
   RX  (0x2B,0x0A)  Device info (auto on connect)
-  RX  (0x2B,0x25)  In-ear state change
+  RX  (0x2B,0x25)  Wear state change (in-ear / in-case / out)
   TX  (0x2B,0x2A)  Get ANC mode              → reply (0x2B,0x2A)
   TX  (0x2B,0x04)  Set ANC mode              → ack   (0x2B,0x04)
   TX  (0x2B,0x5D)  Ring earbud               → echo  (0x2B,0x5E)

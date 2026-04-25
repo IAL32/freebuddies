@@ -2,10 +2,11 @@ package com.freebuddies.app.ui.screens
 
 import android.annotation.SuppressLint
 import androidx.compose.foundation.layout.*
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -13,6 +14,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.freebuddies.app.FreeBudsViewModel
 import com.freebuddies.app.protocol.AncMode
 import com.freebuddies.app.protocol.NcIntensity
+import com.freebuddies.app.protocol.WearState
 import com.freebuddies.app.ui.components.AncModeSelector
 import com.freebuddies.app.ui.components.NcIntensitySelector
 import com.freebuddies.app.ui.components.BudBatteryIndicator
@@ -29,6 +31,25 @@ fun HomeScreen(vm: FreeBudsViewModel) {
     val inEarState by vm.inEarState.collectAsStateWithLifecycle(initialValue = null)
     val ringingStatus by vm.ringingStatus.collectAsStateWithLifecycle(initialValue = null)
     val preferredIntensity by vm.preferredNcIntensity.collectAsStateWithLifecycle()
+
+    var pendingRingSide by remember { mutableIntStateOf(-1) }
+
+    if (pendingRingSide >= 0) {
+        AlertDialog(
+            onDismissRequest = { pendingRingSide = -1 },
+            title = { Text("Start ringing?") },
+            text = { Text("This will play a loud sound on the earbud. Remove it from your ear first.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.setRinging(side = pendingRingSide, active = true)
+                    pendingRingSide = -1
+                }) { Text("Ring") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRingSide = -1 }) { Text("Cancel") }
+            }
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -47,25 +68,27 @@ fun HomeScreen(vm: FreeBudsViewModel) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceAround
             ) {
-                val leftIn = inEarState?.leftInEar ?: batteryStatus?.leftInEar ?: false
-                val rightIn = inEarState?.rightInEar ?: batteryStatus?.rightInEar ?: false
-                
+                val leftWear = inEarState?.left
+                    ?: if (batteryStatus?.leftInEar == true) WearState.IN_EAR else WearState.OUT
+                val rightWear = inEarState?.right
+                    ?: if (batteryStatus?.rightInEar == true) WearState.IN_EAR else WearState.OUT
+
                 BudBatteryIndicator(
                     percent = batteryStatus?.leftPercent ?: 0,
                     charging = batteryStatus?.leftCharging ?: false,
-                    inEar = leftIn,
+                    wearState = leftWear,
                     label = "left"
                 )
                 BudBatteryIndicator(
                     percent = batteryStatus?.casePercent ?: 0,
                     charging = batteryStatus?.caseCharging ?: false,
-                    inEar = true, // Case is always "in"
+                    wearState = null,
                     label = "case"
                 )
                 BudBatteryIndicator(
                     percent = batteryStatus?.rightPercent ?: 0,
                     charging = batteryStatus?.rightCharging ?: false,
-                    inEar = rightIn,
+                    wearState = rightWear,
                     label = "right"
                 )
             }
@@ -120,16 +143,20 @@ fun HomeScreen(vm: FreeBudsViewModel) {
             FindBudToggle(
                 label = "left bud",
                 isRinging = ringingStatus?.left ?: false,
-                onToggle = { vm.setRinging(side = 0, active = it) },
+                onToggle = { active ->
+                    if (active) pendingRingSide = 0 else vm.setRinging(side = 0, active = false)
+                },
                 enabled = isConnected
             )
-            
+
             Spacer(Modifier.height(8.dp))
 
             FindBudToggle(
                 label = "right bud",
                 isRinging = ringingStatus?.right ?: false,
-                onToggle = { vm.setRinging(side = 1, active = it) },
+                onToggle = { active ->
+                    if (active) pendingRingSide = 1 else vm.setRinging(side = 1, active = false)
+                },
                 enabled = isConnected
             )
         }

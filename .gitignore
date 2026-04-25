@@ -27,3 +27,5 @@ captures
 .externalNativeBuild
 .cxx
 local.properties
+*.hprof
+/.idea/inspectionProfiles/

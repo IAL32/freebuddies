@@ -126,7 +126,7 @@ class FreeBudsManager(private val device: BluetoothDevice) {
             0x2B to 0x25 -> {
                 InEarState.fromTlvs(frame.tlvs)?.let {
                     _inEarState.value = it
-                    DebugLog.d(LogTag.BUDS, "In-ear L=${if (it.leftInEar) "in" else "out"} R=${if (it.rightInEar) "in" else "out"}")
+                    DebugLog.d(LogTag.BUDS, "In-ear L=${it.left.label} R=${it.right.label}")
                 }
             }
             0x2B to 0x31 -> {

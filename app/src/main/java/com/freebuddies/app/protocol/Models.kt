@@ -55,29 +55,44 @@ data class DeviceInfo(
     }
 }
 
+enum class WearState(val label: String) {
+    IN_EAR("in"), OUT("out"), IN_CASE("case");
+}
+
 /**
  * In-ear state decoder for (0x2B, 0x25).
+ *
+ * Tag layout (observed on FreeBuds Pro 4):
+ *   T1 = left in-ear,   T2 = right in-ear,
+ *   T3 = left in-case,  T4 = right in-case
  */
 data class InEarState(
-    val leftInEar: Boolean,
-    val rightInEar: Boolean,
+    val left: WearState,
+    val right: WearState,
 ) {
+    val leftInEar: Boolean get() = left == WearState.IN_EAR
+    val rightInEar: Boolean get() = right == WearState.IN_EAR
+
     companion object {
         fun fromTlvs(tlvs: List<Tlv>): InEarState? {
-            // Observed on FreeBuds Pro 4:
-            // Left can be Tag 01 or Tag 03
-            // Right can be Tag 02 or Tag 04
             val t1 = tlvs.find { it.type == 0x01 }?.value?.getOrNull(0)?.toInt() ?: 0
             val t2 = tlvs.find { it.type == 0x02 }?.value?.getOrNull(0)?.toInt() ?: 0
             val t3 = tlvs.find { it.type == 0x03 }?.value?.getOrNull(0)?.toInt() ?: 0
             val t4 = tlvs.find { it.type == 0x04 }?.value?.getOrNull(0)?.toInt() ?: 0
 
-            // If no relevant tags found, return null to avoid overriding with false
             if (tlvs.none { it.type in 1..4 }) return null
 
             return InEarState(
-                leftInEar = (t1 == 1 || t3 == 1),
-                rightInEar = (t2 == 1 || t4 == 1)
+                left = when {
+                    t1 == 1 -> WearState.IN_EAR
+                    t3 == 1 -> WearState.IN_CASE
+                    else -> WearState.OUT
+                },
+                right = when {
+                    t2 == 1 -> WearState.IN_EAR
+                    t4 == 1 -> WearState.IN_CASE
+                    else -> WearState.OUT
+                }
             )
         }
     }

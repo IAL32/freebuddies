@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.freebuddies.app.protocol.AncMode
 import com.freebuddies.app.protocol.NcIntensity
+import com.freebuddies.app.protocol.WearState
 import com.freebuddies.app.ui.theme.*
 
 @Composable
@@ -203,7 +204,7 @@ fun NcIntensitySelector(
 fun BudBatteryIndicator(
     percent: Int,
     charging: Boolean,
-    inEar: Boolean,
+    wearState: WearState?,
     label: String,
     modifier: Modifier = Modifier
 ) {
@@ -247,7 +248,7 @@ fun BudBatteryIndicator(
             )
         }
         Text(
-            text = "$label ${if (inEar) "in" else "out"}",
+            text = if (wearState != null) "$label ${wearState.label}" else label,
             style = MaterialTheme.typography.labelSmall,
             color = OnDarkMuted
         )
