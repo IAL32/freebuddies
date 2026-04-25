@@ -203,13 +203,11 @@ Commands are identified by the `(svc_id, cmd_id)` pair. Observed service IDs:
 
 ### 5.1 Device info
 
-#### Request — `(0x01, 0x07)` or `(0x2B, 0x0A)`
+Two commands provide device information with different detail levels.
 
-The buds broadcast a device-info bundle under `(0x2B, 0x0A)` shortly after the RFCOMM channel is established. It can also be requested explicitly. Both responses carry the same TLV layout.
+#### Response — `(0x2B, 0x0A)` (basic)
 
-**Request payload:** empty (no TLVs).
-
-#### Response — device info bundle
+Broadcast shortly after RFCOMM connect, or request with empty TLVs.
 
 | Tag | Type | Description | Example |
 |-----|------|-------------|---------|
@@ -218,7 +216,22 @@ The buds broadcast a device-info bundle under `(0x2B, 0x0A)` shortly after the R
 | 03 | ASCII string | Hardware revision | `082` |
 | 04 | ASCII string | Region / HW variant | `001` |
 | 05 | ASCII string | Color / SKU code | `ZAAM` |
-| 06 | ASCII string | Firmware version | `1.0.0.x` |
+| 06 | ASCII string | Firmware version (short) | `1.0.0` |
+| 07 | ASCII string | Bluetooth chip version | `HL1SAKM2_Ver.A` |
+
+#### Response — `(0x01, 0x07)` (extended)
+
+Returns richer system information. Request with empty TLVs.
+
+| Tag | Type | Description | Example |
+|-----|------|-------------|---------|
+| 02 | 2 bytes | Protocol version | `01 57` |
+| 03 | ASCII string | Bluetooth chip version | `HL1SAKM2_Ver.A` |
+| 07 | UTF-8 string | **Full firmware string** (with build code) | `HarmonyOS 6.0.0.272(F003H003C90)` |
+| 09 | ASCII string | Serial number | `3RRXC25408034501` |
+| 0A | ASCII string | Bluetooth firmware ID | `BTFT0022-000157` |
+| 0F | ASCII string | Bluetooth model code | `BTFT0022` |
+| 18 | ASCII string | **Individual bud serial numbers** | `L-XC5908253U006995,R-XC5911253R001361` |
 
 Model code `T0022/T0022C` is the canonical identifier for FreeBuds 4 Pro. It can be used to reject frames from other Huawei audio devices if the app targets FreeBuds 4 Pro specifically.
 

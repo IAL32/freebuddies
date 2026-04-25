@@ -15,7 +15,7 @@ An open-source Android companion app for the **Huawei FreeBuds 4 Pro** (`T0022` 
 - **Charging case tone** — toggle case tone (requires both buds in case)
 - **Smart wear detection** — toggle proximity sensor on/off
 - **Head control** — enable/disable head gestures, configure nod and shake actions (answer call, reject call, none)
-- **Device info** — displays model, serial number, firmware version, and hardware revision
+- **Device info** — model, serial number, firmware (full build string), hardware revision, BT chip, BT firmware ID, region, color code, individual bud serials. Privacy toggle hides sensitive values by default
 - **Quick Settings tiles** — Android Quick Settings tiles for ANC cycling and Find My Buds
 - **Debug log** — real-time protocol log with copy-to-clipboard and save-to-file
 
