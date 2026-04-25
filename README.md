@@ -5,11 +5,19 @@ An open-source Android companion app for the **Huawei FreeBuds 4 Pro** (`T0022` 
 ## Features
 
 - **Battery status** — real-time percentage and charging state for left bud, right bud, and case
+- **In-ear detection** — three-state wear detection per bud (in-ear, out, in-case)
 - **ANC / Awareness control** — switch between Off, Noise Cancellation (General / Cozy / Ultra / Dynamic), and Awareness (Normal / Voice) modes
+- **Sound configuration** — EQ presets (Default, Balanced, Classical, Bass Boost, Treble Boost, Voices, Symphony, Hi-Fi Live), custom EQ profiles with 10-band editor and live preview
+- **Audio quality** — prioritize sound quality or connection quality, low audio latency toggle
+- **Ear tips** — switch between silicone and memory foam tip profiles
 - **Find My Buds** — ring either earbud independently to locate it
-- **In-ear detection** — shows whether each bud is currently worn
+- **Paired devices** — shows connected devices and current playback state
+- **Charging case tone** — toggle case tone (requires both buds in case)
+- **Smart wear detection** — toggle proximity sensor on/off
+- **Head control** — enable/disable head gestures, configure nod and shake actions (answer call, reject call, none)
 - **Device info** — displays model, serial number, firmware version, and hardware revision
 - **Quick Settings tiles** — Android Quick Settings tiles for ANC cycling and Find My Buds
+- **Debug log** — real-time protocol log with copy-to-clipboard and save-to-file
 
 ## Screenshots
 
@@ -79,19 +87,26 @@ freebuddies/
 │   └── src/main/java/com/freebuddies/app/
 │       ├── MainActivity.kt              # Entry point, permission handling
 │       ├── FreebuddiesApplication.kt    # Application subclass
+│       ├── FreeBudsViewModel.kt         # UI state facade
+│       ├── FreeBudsConnectionManager.kt # Bluetooth lifecycle singleton
 │       ├── bluetooth/
-│       │   └── FreeBudsManager.kt       # Bluetooth socket and frame routing
+│       │   └── FreeBudsManager.kt       # SPP socket, frame routing, state flows
 │       ├── protocol/
 │       │   ├── Protocol.kt              # CRC16, TLV parsing, frame building
 │       │   └── Models.kt                # Data classes for protocol messages
 │       ├── ui/
 │       │   ├── FreebuddiesApp.kt        # Root composable with navigation
-│       │   ├── screens/                  # Home, Settings, Debug, About
+│       │   ├── screens/                  # Home, Sound, Settings, Debug, About
 │       │   ├── components/              # Reusable Compose components
-│       │   └── theme/                   # Material3 theme, colors, typography
+│       │   └── theme/                   # Material3 theme, colors, dimensions
 │       └── tile/
 │           ├── AncTileService.kt        # Quick Settings tile for ANC
 │           └── FindBudsTileService.kt   # Quick Settings tile for Find My Buds
+├── analysis/                            # Protocol analysis tools (Python)
+│   ├── README.md                        # Tool documentation and workflow guide
+│   ├── parse_btsnoop.py                 # Parse btsnoop HCI binary logs
+│   ├── decode_session.py                # Parse Wireshark text exports
+│   └── decode_inline.py                 # Decode extracted SPP frames
 └── gradle/                              # Gradle wrapper (9.4.1)
 ```
 
