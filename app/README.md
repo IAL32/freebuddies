@@ -480,7 +480,89 @@ Observed examples:
 
 The volume step values correspond to Android system media volume levels. The range depends on the connected device's volume steps (typically 0–15).
 
-### 5.10 Other observed messages (lower confidence)
+### 5.10 EQ / Sound presets
+
+Discovered via btsnoop binary analysis of AI Life traffic. Uses two command pairs: `(0x2B, 0x4A)` for reading capabilities and current preset, `(0x2B, 0x49)` for setting a preset.
+
+#### Read — `(0x2B, 0x4A)`
+
+**Request payload:** `TLV 02 = (empty)`.
+
+#### Response — EQ capabilities
+
+| Tag | Type | Description |
+|-----|------|-------------|
+| 01 | uint8 | Status / version. Always `0x01`. |
+| 02 | uint8 | **Currently selected preset ID.** |
+| 03 | N × uint8 | **Available preset IDs** (list). Observed: `02 03 05 09 0B 0C`. |
+| 04 | uint8 | Default preset ID. Observed: `0x05`. |
+| 08 | empty | Reserved. |
+
+#### Write — `(0x2B, 0x49)`
+
+For built-in presets, Tag 01 is a single byte (the preset ID). For custom EQ profiles, a multi-tag format is used.
+
+**Built-in preset (single byte):**
+
+| Tag | Type | Description |
+|-----|------|-------------|
+| 01 | uint8 | Preset ID. |
+
+**Custom EQ profile (multi-tag):**
+
+| Tag | Type | Description |
+|-----|------|-------------|
+| 01 | uint8 | Preset slot ID. `0x64` (100) = custom slot 1. |
+| 02 | uint8 | Number of EQ bands. `0x0A` (10). |
+| 03 | 10 × int8 | **EQ curve.** One signed byte per band, internal scale (approx ±50). Band order: 60 Hz, 125 Hz, 250 Hz, 500 Hz, 1 kHz, 2 kHz, 4 kHz, 8 kHz, 12 kHz, 16 kHz. |
+| 04 | ASCII string | User-visible name (e.g. `"My sound effect 1"`). |
+| 05 | uint8 | Active flag. `0x00` or `0x01`. |
+
+#### Response (ack)
+
+All writes return `Tag 7F = 000186A0` (4 bytes, value 100000). This is a universal write-accepted acknowledgment shared with other write commands.
+
+#### Preset IDs
+
+| ID | Preset |
+|----|--------|
+| `0x02` | Bass Boost |
+| `0x03` | Treble Boost |
+| `0x05` | Default |
+| `0x09` | Voices |
+| `0x0B` | Balanced |
+| `0x0C` | Classical |
+| `0xC8` | Symphony (factory preset with embedded EQ curve) |
+| `0xC9` | Hi-Fi Live (factory preset with embedded EQ curve) |
+| `0x64` | Custom slot 1 |
+
+### 5.11 Wear detection toggle
+
+Controls the proximity sensor used for in-ear detection. When disabled, the buds stop reading the sensor and default to "wearing" state, which causes ANC to engage.
+
+#### Write — `(0x2B, 0x10)`
+
+| Tag | Type | Description |
+|-----|------|-------------|
+| 01 | uint8 | `0x00` = wear detection OFF, `0x01` = wear detection ON. |
+
+**Response:** `Tag 7F = 000186A0` (standard ack).
+
+**Side effects:** Toggling wear detection OFF causes a `(0x2B, 0x25)` in-ear state change (the primary bud reports "in ear" even when in the case) and ANC engages at the last-used preset. Toggling ON restores accurate sensor readings.
+
+### 5.12 Preferred device
+
+Sets which paired device the buds prefer to connect to, or auto mode.
+
+#### Write — `(0x2B, 0x32)`
+
+| Tag | Type | Description |
+|-----|------|-------------|
+| 01 | 6 × uint8 | Bluetooth address of the preferred device, or `00 00 00 00 00 00` for auto mode. |
+
+**Response:** `Tag 7F = 000186A0` (standard ack).
+
+### 5.13 Other observed messages (lower confidence)
 
 | svc cmd | Seen | Notes |
 |---------|------|-------|
@@ -685,6 +767,8 @@ A usable first version requires only these message handlers, which cover roughly
 | ANC change notification | RX async | `(0x2B, 0x5E)` | Pushed for both programmatic writes and user long-press on the bud. Keeps the UI in sync. |
 | Ring earbud | TX | `(0x2B, 0x5D)` with `TLV 01 = [side, action]` | See §5.6. Side: 0=left, 1=right. Action: 0=ring, 1=stop. |
 | Ring state notification | RX async | `(0x2B, 0x5E)` Tag 02 | Echoes ringing changes. Reports one side per notification. |
+| Read current EQ | TX | `(0x2B, 0x4A)` with `TLV 02 = (empty)` | Returns available presets in Tag 03 and current preset in Tag 02. |
+| Set EQ preset | TX | `(0x2B, 0x49)` with `TLV 01 = [preset_id]` | See §5.10. Ack via Tag 7F. |
 
 ---
 
@@ -692,14 +776,19 @@ A usable first version requires only these message handlers, which cover roughly
 
 Areas that require further reverse engineering:
 
+- **`(0x2B, 0x2C)`** — Pushed in bursts of 2–3 after the buds transition to "in ear" state. Always `Tag 01 = 0x00`. Likely a media session / audio routing readiness signal.
+- **`(0x2B, 0x7F)`** — Pushed when both buds are seated in the case. `Tag 04 = 0x01`. Possibly case lid closed or both-buds-seated indicator.
 - **`(0x2B, 0x5F)`** — Seen once near an ANC change. Likely a secondary sound attribute.
-- **`(0x2B, 0xAC)`** — Pushed after `(0x2B, 0x2A)` on connect. Carries 9 discrete tags (T1–T9), mostly zeros. Not an ANC state update. Possibly ANC capability or configuration info.
-- **`(0x2B, 0x37)` and `(0x01, 0x26)`** — Sent by the phone once each, no visible effect. Worth probing with the AI Life app open and a Wireshark capture running while toggling each setting.
+- **`(0x2B, 0xAC)`** — Pushed after `(0x2B, 0x2A)` on connect. Carries 9 discrete tags (T1–T9), mostly zeros. Not an ANC state update. Possibly device capability flags.
+- **`(0x2B, 0x11)`** — Ear tips setting query. Response `Tag 01 = 0x01` (silicone tips default). Write encoding for switching tip type not yet confirmed.
+- **`(0x2B, 0xB3)`** — Large initialization payload sent by AI Life on connect (16+ tags). Purpose unknown.
+- **`(0x2B, 0x37)` and `(0x01, 0x26)`** — Sent by the phone once each, no visible effect. Unresearched.
+- **Custom EQ band mapping** — The 10-byte EQ curve in `(0x2B, 0x49)` Tag 03 uses a signed byte per band, but the exact internal scale (how dB maps to byte values) needs calibration with isolated single-band changes.
 - **Firmware update protocol** — Not researched. Huawei firmware is signed, so custom flashing is not realistic.
 - **Gesture config (`(0x01, 0x20)` / `(0x01, 0x1F)`)** — Inherited from the 4i reference, not exercised in captures. Likely works identically but has not been verified on FreeBuds 4 Pro.
 - **Voice language (`(0x0C, 0x01)` / `(0x0C, 0x02)`)** — Same status as gesture config: 4i reference exists, not verified on FreeBuds 4 Pro.
 
-Investigation approach: pair the buds with AI Life, start `btsnoop` logging in developer options, toggle one setting, and diff the resulting frames.
+Investigation approach: pair the buds with AI Life, start `btsnoop` logging in developer options, toggle one setting, and diff the resulting frames. For binary analysis, use `analysis/parse_btsnoop.py` to decode btsnoop HCI logs directly.
 
 ---
 
@@ -734,6 +823,10 @@ ESSENTIAL COMMANDS
   RX  (0x2B,0x25)  Wear state change (in-ear / in-case / out)
   TX  (0x2B,0x2A)  Get ANC mode              → reply (0x2B,0x2A)
   TX  (0x2B,0x04)  Set ANC mode              → ack   (0x2B,0x04)
+  TX  (0x2B,0x4A)  Get EQ state              → reply (0x2B,0x4A)
+  TX  (0x2B,0x49)  Set EQ preset             → ack   T7F
+  TX  (0x2B,0x10)  Set wear detection        → ack   T7F
+  TX  (0x2B,0x32)  Set preferred device      → ack   T7F
   TX  (0x2B,0x5D)  Ring earbud               → echo  (0x2B,0x5E)
   RX  (0x2B,0x5E)  Sound control / ringing changed
   RX  (0x2B,0x31)  Audio source info (device name + state)
@@ -758,4 +851,17 @@ FIND MY BUDS (write via 0x2B,0x5D / notify via 0x2B,0x5E Tag 02)
   TLV 02 value [side, action]  (notification)
     side:   0 = left, 1 = right
     action: 0 = ring, 1 = stop
+
+EQ PRESETS (read via 0x2B,0x4A / write via 0x2B,0x49)
+  Read:  TLV 02=(empty)  → T02=current_id  T03=available_ids
+  Write: TLV 01=[preset_id]  → ack T7F=000186A0
+    0x02=Bass Boost  0x03=Treble Boost  0x05=Default
+    0x09=Voices      0x0B=Balanced      0x0C=Classical
+    0xC8=Symphony    0xC9=Hi-Fi Live    0x64=Custom 1
+
+WEAR DETECTION (0x2B,0x10)
+  TLV 01: 0x00=off  0x01=on  → ack T7F
+
+PREFERRED DEVICE (0x2B,0x32)
+  TLV 01: 6-byte BT addr, or 000000000000=auto  → ack T7F
 ```
