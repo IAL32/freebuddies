@@ -83,11 +83,14 @@ object FreeBudsConnectionManager {
         if (autoReconnectJob != null) return
         autoReconnectJob = scope.launch {
             while (true) {
-                val currentManager = _manager.value
-                val connected = currentManager?.isConnected?.value ?: false
-
+                val connected = _manager.value?.isConnected?.value ?: false
                 if (!connected && !isConnecting) {
-                    findDevice(context)
+                    val known = _targetDevice.value
+                    if (known != null) {
+                        connect(known)
+                    } else {
+                        findDevice(context)
+                    }
                 }
                 delay(1000)
             }
@@ -125,13 +128,14 @@ object FreeBudsConnectionManager {
     }
 
     private fun connect(device: BluetoothDevice) {
+        isConnecting = true
         _manager.value?.release()
         val newManager = FreeBudsManager(device)
         _manager.value = newManager
 
         scope.launch {
             try {
-                withTimeout(5000) {
+                withTimeout(3000) {
                     newManager.isConnected.first { it }
                 }
             } catch (e: Exception) {
@@ -148,7 +152,14 @@ object FreeBudsConnectionManager {
         val manager = _manager.value
         if (manager != null && manager.isConnected.value) {
             manager.refreshState()
-        } else if (!isConnecting) {
+            return
+        }
+        if (isConnecting) return
+        // Fast path: reconnect to the known device without re-scanning
+        val known = _targetDevice.value
+        if (known != null) {
+            connect(known)
+        } else {
             findDevice(context)
         }
     }
