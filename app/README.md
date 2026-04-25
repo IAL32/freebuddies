@@ -586,9 +586,74 @@ Uses a sub-command structure: Tag 01 identifies the setting category (`0x08` = e
 
 The response echoes the current (or newly set) value — the same frame format is used for both reads and writes. To read, send Tag 02 empty; to write, send Tag 02 with the desired value.
 
-**Note:** `(0x2B, 0xB4)` may support other sub-commands besides `0x08`. The sub-command in Tag 01 scopes the operation.
+### 5.14 Charging case tone & head gestures
 
-### 5.14 Other observed messages (lower confidence)
+Also uses `(0x2B, 0xB4)` with sub-command `0x0B`. This sub-command bundles the charging case tone setting with head gesture actions.
+
+#### Read — `(0x2B, 0xB4)` T01=0x0B
+
+**Request:** `TLV 01 = 0x0B`, `TLV 02 = (empty)`.
+
+#### Response / Write
+
+| Tag | Type | Description |
+|-----|------|-------------|
+| 01 | uint8 | Sub-command. Always `0x0B`. |
+| 02 | uint8 | **Charging case tone.** `0x01` = on, `0x00` = off. |
+| 03 | uint8 | **Nod head action.** `0x00` = none, `0x01` = answer call, `0x02` = reject call. |
+| 04 | uint8 | **Shake head action.** Same values as nod. |
+
+The response always echoes all four tags with the current state. To change a single setting, send T01 (sub-command) plus the tag you want to change — the buds respond with the full current state including the update.
+
+### 5.15 Head control toggle
+
+Enables or disables head gesture recognition.
+
+#### Read — `(0x2B, 0x6C)`
+
+**Request:** `TLV 02 = (empty)`. Response: `TLV 02 = [0/1]`.
+
+#### Write — `(0x2B, 0x6C)`
+
+| Tag | Type | Description |
+|-----|------|-------------|
+| 01 | uint8 | `0x00` = head control off, `0x01` = head control on. |
+
+**Response:** `Tag 7F = 000186A0` (standard ack).
+
+### 5.16 Low audio latency
+
+Controls whether low-latency audio mode is active. Read and write use separate command IDs.
+
+#### Read — `(0x2B, 0xA3)`
+
+**Request:** empty. Response carries the current state.
+
+| Tag | Type | Description |
+|-----|------|-------------|
+| 02 | uint8 | Low audio latency: `0x00` = off, `0x01` = on. |
+
+#### Write — `(0x2B, 0xA2)`
+
+| Tag | Type | Description |
+|-----|------|-------------|
+| 01 | uint8 | `0x00` = off, `0x01` = on. |
+
+Writing triggers a push notification via `(0x2B, 0xA3)` with the updated T02 value.
+
+### 5.17 Wear detection (read)
+
+The wear detection state can be **read** via `(0x2B, 0x11)` and **written** via `(0x2B, 0x10)` (documented in §5.11).
+
+#### Read — `(0x2B, 0x11)`
+
+**Request:** `TLV 01 = (empty)`.
+
+| Tag | Type | Description |
+|-----|------|-------------|
+| 01 | uint8 | `0x01` = wear detection on, `0x00` = off. |
+
+### 5.18 Other observed messages (lower confidence)
 
 | svc cmd | Seen | Notes |
 |---------|------|-------|
@@ -796,6 +861,12 @@ A usable first version requires only these message handlers, which cover roughly
 | Read current EQ | TX | `(0x2B, 0x4A)` with `TLV 02 = (empty)` | Returns available presets in Tag 03 and current preset in Tag 02. |
 | Set EQ preset | TX | `(0x2B, 0x49)` with `TLV 01 = [preset_id]` | See §5.10. Ack via Tag 7F. |
 | Read/set ear tips | TX | `(0x2B, 0xB4)` with `TLV 01 = 0x08` | See §5.13. T02 empty to read, T02=[type] to write. Response echoes value. |
+| Read/set case tone | TX | `(0x2B, 0xB4)` with `TLV 01 = 0x0B` | See §5.14. T02 = tone on/off. Response includes T03/T04 for head gestures. |
+| Read/set head gestures | TX | `(0x2B, 0xB4)` with `TLV 01 = 0x0B` | See §5.14. T03 = nod action, T04 = shake action. |
+| Toggle head control | TX | `(0x2B, 0x6C)` with `TLV 01 = [0/1]` | See §5.15. Read via T02=(empty). |
+| Read low latency | TX | `(0x2B, 0xA3)` with empty body | See §5.16. Response T02 = on/off. |
+| Set low latency | TX | `(0x2B, 0xA2)` with `TLV 01 = [0/1]` | See §5.16. Triggers push via `(0x2B, 0xA3)`. |
+| Read wear detection | TX | `(0x2B, 0x11)` with `TLV 01 = (empty)` | See §5.17. Response T01 = on/off. |
 
 ---
 
@@ -807,7 +878,8 @@ Areas that require further reverse engineering:
 - **`(0x2B, 0x7F)`** — Pushed when both buds are seated in the case. `Tag 04 = 0x01`. Possibly case lid closed or both-buds-seated indicator.
 - **`(0x2B, 0x5F)`** — Seen once near an ANC change. Likely a secondary sound attribute.
 - **`(0x2B, 0xAC)`** — Pushed after `(0x2B, 0x2A)` on connect. Carries 9 discrete tags (T1–T9), mostly zeros. Not an ANC state update. Possibly device capability flags.
-- **`(0x2B, 0x11)`** — Queried by AI Life on init. Response `Tag 01 = 0x01`. Purpose unknown (not ear tips — those use `(0x2B, 0xB4)`).
+- **`(0x2B, 0x8F)`** — Polled by AI Life every ~3s on the earbud settings screen. Always `T01=(empty)` query, `T7F=000186A3` response. Likely signal quality monitoring.
+- **`(0x2B, 0x42)`** — Queried on screen init. Response `T01=00`. Purpose unknown.
 - **`(0x2B, 0xB3)`** — Large initialization payload sent by AI Life on connect (16+ tags). Purpose unknown.
 - **`(0x2B, 0x37)` and `(0x01, 0x26)`** — Sent by the phone once each, no visible effect. Unresearched.
 - **Custom EQ band mapping** — The 10-byte EQ curve in `(0x2B, 0x49)` Tag 03 uses a signed byte per band, but the exact internal scale (how dB maps to byte values) needs calibration with isolated single-band changes.
@@ -852,9 +924,14 @@ ESSENTIAL COMMANDS
   TX  (0x2B,0x04)  Set ANC mode              → ack   (0x2B,0x04)
   TX  (0x2B,0x4A)  Get EQ state              → reply (0x2B,0x4A)
   TX  (0x2B,0x49)  Set EQ preset             → ack   T7F
-  TX  (0x2B,0xB4)  Read/set ear tips          → echo  (0x2B,0xB4)
-  TX  (0x2B,0x10)  Set wear detection        → ack   T7F
-  TX  (0x2B,0x32)  Set preferred device      → ack   T7F
+  TX  (0x2B,0xB4)  Read/set ear tips (T01=08)  → echo  (0x2B,0xB4)
+  TX  (0x2B,0xB4)  Read/set case tone (T01=0B) → echo (0x2B,0xB4)
+  TX  (0x2B,0x6C)  Toggle head control        → ack   T7F
+  TX  (0x2B,0xA3)  Read low latency           → reply (0x2B,0xA3)
+  TX  (0x2B,0xA2)  Set low latency            → push  (0x2B,0xA3)
+  TX  (0x2B,0x11)  Read wear detection        → reply (0x2B,0x11)
+  TX  (0x2B,0x10)  Set wear detection         → ack   T7F
+  TX  (0x2B,0x32)  Set preferred device       → ack   T7F
   TX  (0x2B,0x5D)  Ring earbud               → echo  (0x2B,0x5E)
   RX  (0x2B,0x5E)  Sound control / ringing changed
   RX  (0x2B,0x31)  Audio source info (device name + state)
@@ -893,8 +970,24 @@ EAR TIPS (0x2B,0xB4)
   Write: T02=[type]   → response echoes T02=new
     0x01=silicone  0x02=memory foam
 
-WEAR DETECTION (0x2B,0x10)
-  TLV 01: 0x00=off  0x01=on  → ack T7F
+CASE TONE + HEAD GESTURES (0x2B,0xB4 T01=0x0B)
+  Read:  T02=(empty)  → T02=[tone] T03=[nod] T04=[shake]
+  Write: T02/T03/T04=[value]  → echo all current values
+    T02 case tone: 0x00=off  0x01=on
+    T03 nod:       0x00=none  0x01=answer  0x02=reject
+    T04 shake:     0x00=none  0x01=answer  0x02=reject
+
+HEAD CONTROL (0x2B,0x6C)
+  Read:  TLV 02=(empty)  → T02=[0/1]
+  Write: TLV 01: 0x00=off  0x01=on  → ack T7F
+
+LOW AUDIO LATENCY
+  Read  (0x2B,0xA3) empty  → T02: 0x00=off  0x01=on
+  Write (0x2B,0xA2) T01: 0x00=off  0x01=on  → push (0x2B,0xA3)
+
+WEAR DETECTION
+  Read  (0x2B,0x11) T01=(empty)  → T01: 0x00=off  0x01=on
+  Write (0x2B,0x10) T01: 0x00=off  0x01=on  → ack T7F
 
 PREFERRED DEVICE (0x2B,0x32)
   TLV 01: 6-byte BT addr, or 000000000000=auto  → ack T7F
