@@ -1,6 +1,8 @@
 package com.freebuddies.app.ui.screens
 
 import android.annotation.SuppressLint
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -9,8 +11,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavController
 import com.freebuddies.app.FreeBudsViewModel
 import com.freebuddies.app.protocol.AncMode
 import com.freebuddies.app.protocol.NcIntensity
@@ -24,13 +28,14 @@ import com.freebuddies.app.ui.theme.*
 
 @SuppressLint("MissingPermission")
 @Composable
-fun HomeScreen(vm: FreeBudsViewModel) {
+fun HomeScreen(vm: FreeBudsViewModel, navController: NavController) {
     val isConnected by vm.isConnected.collectAsStateWithLifecycle(initialValue = false)
     val batteryStatus by vm.batteryStatus.collectAsStateWithLifecycle(initialValue = null)
     val soundControl by vm.soundControl.collectAsStateWithLifecycle(initialValue = null)
     val inEarState by vm.inEarState.collectAsStateWithLifecycle(initialValue = null)
     val ringingStatus by vm.ringingStatus.collectAsStateWithLifecycle(initialValue = null)
     val preferredIntensity by vm.preferredNcIntensity.collectAsStateWithLifecycle()
+    val eqPreset by vm.eqPreset.collectAsStateWithLifecycle(initialValue = null)
 
     var pendingRingSide by remember { mutableIntStateOf(-1) }
 
@@ -43,10 +48,10 @@ fun HomeScreen(vm: FreeBudsViewModel) {
                 TextButton(onClick = {
                     vm.setRinging(side = pendingRingSide, active = true)
                     pendingRingSide = -1
-                }) { Text("Ring") }
+                }) { Text("Ring", color = AccentTeal) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingRingSide = -1 }) { Text("Cancel") }
+                TextButton(onClick = { pendingRingSide = -1 }) { Text("Cancel", color = OnDarkMuted) }
             }
         )
     }
@@ -131,6 +136,30 @@ fun HomeScreen(vm: FreeBudsViewModel) {
                     enabled = isConnected
                 )
             }
+        }
+
+        // Sound configuration link
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .clip(MaterialTheme.shapes.medium)
+                .background(MaterialTheme.colorScheme.surface)
+                .clickable { navController.navigate("sound") }
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = "sound configuration",
+                style = MaterialTheme.typography.bodyLarge,
+                color = AccentTeal,
+            )
+            Text(
+                text = eqPreset?.label ?: "custom",
+                style = MaterialTheme.typography.labelMedium,
+                color = OnDarkMuted,
+            )
         }
 
         FbSurface {

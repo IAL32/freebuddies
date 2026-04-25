@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
@@ -34,6 +35,7 @@ import com.freebuddies.app.ui.screens.AboutScreen
 import com.freebuddies.app.ui.screens.DebugScreen
 import com.freebuddies.app.ui.screens.HomeScreen
 import com.freebuddies.app.ui.screens.SettingsScreen
+import com.freebuddies.app.ui.screens.SoundScreen
 import com.freebuddies.app.ui.theme.*
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filterNotNull
@@ -131,6 +133,17 @@ fun FreebuddiesApp(
                         }
                     )
                     DrawerItem(
+                        icon = Icons.Default.GraphicEq,
+                        label = "sound",
+                        isSelected = currentRoute == "sound",
+                        onClick = {
+                            scope.launch { drawerState.close() }
+                            if (currentRoute != "sound") {
+                                navController.navigate("sound")
+                            }
+                        }
+                    )
+                    DrawerItem(
                         icon = Icons.Default.Settings,
                         label = "settings",
                         isSelected = currentRoute == "settings",
@@ -219,7 +232,8 @@ fun FreebuddiesApp(
                     navController = navController,
                     startDestination = "home"
                 ) {
-                    composable("home") { HomeScreen(vm) }
+                    composable("home") { HomeScreen(vm, navController) }
+                    composable("sound") { SoundScreen(vm) }
                     composable("settings") { SettingsScreen(vm) }
                     composable("debug") { DebugScreen() }
                     composable("about") { AboutScreen(vm) }
