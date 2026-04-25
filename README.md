@@ -21,7 +21,13 @@ An open-source Android companion app for the **Huawei FreeBuds 4 Pro** (`T0022` 
 
 ## Screenshots
 
-<!-- TODO: Add screenshots -->
+| Main | Sound | Equalizer |
+|------|-------|-----------|
+| ![Main screen](media/main_screen.jpeg) | ![Sound screen](media/sound_screen.jpeg) | ![Equalizer](media/equalizer.jpeg) |
+
+| Settings | Sidebar | About |
+|----------|---------|-------|
+| ![Settings](media/settings_and_info_screen.jpeg) | ![Sidebar](media/sidebar.jpeg) | ![About](media/about_screen.jpeg) |
 
 ## Requirements
 
