@@ -562,7 +562,33 @@ Sets which paired device the buds prefer to connect to, or auto mode.
 
 **Response:** `Tag 7F = 000186A0` (standard ack).
 
-### 5.13 Other observed messages (lower confidence)
+### 5.13 Ear tips
+
+Configures which ear tip type is installed, affecting noise cancellation seal optimization.
+
+#### Read / Write — `(0x2B, 0xB4)`
+
+Uses a sub-command structure: Tag 01 identifies the setting category (`0x08` = ear tips), Tag 02 carries the value.
+
+**Read request:**
+
+| Tag | Type | Description |
+|-----|------|-------------|
+| 01 | uint8 | Sub-command. `0x08` for ear tips. |
+| 02 | empty | Query (no value). |
+
+**Response / Write:**
+
+| Tag | Type | Description |
+|-----|------|-------------|
+| 01 | uint8 | Sub-command. Always `0x08`. |
+| 02 | uint8 | Tip type: `0x01` = silicone, `0x02` = memory foam. |
+
+The response echoes the current (or newly set) value — the same frame format is used for both reads and writes. To read, send Tag 02 empty; to write, send Tag 02 with the desired value.
+
+**Note:** `(0x2B, 0xB4)` may support other sub-commands besides `0x08`. The sub-command in Tag 01 scopes the operation.
+
+### 5.14 Other observed messages (lower confidence)
 
 | svc cmd | Seen | Notes |
 |---------|------|-------|
@@ -769,6 +795,7 @@ A usable first version requires only these message handlers, which cover roughly
 | Ring state notification | RX async | `(0x2B, 0x5E)` Tag 02 | Echoes ringing changes. Reports one side per notification. |
 | Read current EQ | TX | `(0x2B, 0x4A)` with `TLV 02 = (empty)` | Returns available presets in Tag 03 and current preset in Tag 02. |
 | Set EQ preset | TX | `(0x2B, 0x49)` with `TLV 01 = [preset_id]` | See §5.10. Ack via Tag 7F. |
+| Read/set ear tips | TX | `(0x2B, 0xB4)` with `TLV 01 = 0x08` | See §5.13. T02 empty to read, T02=[type] to write. Response echoes value. |
 
 ---
 
@@ -780,7 +807,7 @@ Areas that require further reverse engineering:
 - **`(0x2B, 0x7F)`** — Pushed when both buds are seated in the case. `Tag 04 = 0x01`. Possibly case lid closed or both-buds-seated indicator.
 - **`(0x2B, 0x5F)`** — Seen once near an ANC change. Likely a secondary sound attribute.
 - **`(0x2B, 0xAC)`** — Pushed after `(0x2B, 0x2A)` on connect. Carries 9 discrete tags (T1–T9), mostly zeros. Not an ANC state update. Possibly device capability flags.
-- **`(0x2B, 0x11)`** — Ear tips setting query. Response `Tag 01 = 0x01` (silicone tips default). Write encoding for switching tip type not yet confirmed.
+- **`(0x2B, 0x11)`** — Queried by AI Life on init. Response `Tag 01 = 0x01`. Purpose unknown (not ear tips — those use `(0x2B, 0xB4)`).
 - **`(0x2B, 0xB3)`** — Large initialization payload sent by AI Life on connect (16+ tags). Purpose unknown.
 - **`(0x2B, 0x37)` and `(0x01, 0x26)`** — Sent by the phone once each, no visible effect. Unresearched.
 - **Custom EQ band mapping** — The 10-byte EQ curve in `(0x2B, 0x49)` Tag 03 uses a signed byte per band, but the exact internal scale (how dB maps to byte values) needs calibration with isolated single-band changes.
@@ -825,6 +852,7 @@ ESSENTIAL COMMANDS
   TX  (0x2B,0x04)  Set ANC mode              → ack   (0x2B,0x04)
   TX  (0x2B,0x4A)  Get EQ state              → reply (0x2B,0x4A)
   TX  (0x2B,0x49)  Set EQ preset             → ack   T7F
+  TX  (0x2B,0xB4)  Read/set ear tips          → echo  (0x2B,0xB4)
   TX  (0x2B,0x10)  Set wear detection        → ack   T7F
   TX  (0x2B,0x32)  Set preferred device      → ack   T7F
   TX  (0x2B,0x5D)  Ring earbud               → echo  (0x2B,0x5E)
@@ -858,6 +886,12 @@ EQ PRESETS (read via 0x2B,0x4A / write via 0x2B,0x49)
     0x02=Bass Boost  0x03=Treble Boost  0x05=Default
     0x09=Voices      0x0B=Balanced      0x0C=Classical
     0xC8=Symphony    0xC9=Hi-Fi Live    0x64=Custom 1
+
+EAR TIPS (0x2B,0xB4)
+  TLV 01=0x08 (sub-cmd), TLV 02=[type]
+  Read:  T02=(empty)  → response echoes T02=current
+  Write: T02=[type]   → response echoes T02=new
+    0x01=silicone  0x02=memory foam
 
 WEAR DETECTION (0x2B,0x10)
   TLV 01: 0x00=off  0x01=on  → ack T7F
