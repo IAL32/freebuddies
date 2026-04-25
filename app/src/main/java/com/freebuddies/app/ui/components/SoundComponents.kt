@@ -37,7 +37,7 @@ fun EqPresetRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(44.dp)
+            .height(Dimens.RowHeight)
             .clip(MaterialTheme.shapes.extraSmall)
             .background(bg)
             .clickable(enabled = enabled) { onClick() }
@@ -52,7 +52,7 @@ fun EqPresetRow(
         )
         Box(
             modifier = Modifier
-                .size(8.dp)
+                .size(Dimens.DotSize)
                 .clip(MaterialTheme.shapes.extraSmall)
                 .background(indicator)
         )
@@ -79,7 +79,7 @@ fun CustomProfileRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(44.dp)
+            .height(Dimens.RowHeight)
             .clip(MaterialTheme.shapes.extraSmall)
             .background(bg)
             .clickable(enabled = enabled && !editMode) { onClick() }
@@ -106,7 +106,7 @@ fun CustomProfileRow(
             val indicator = if (isSelected) AccentTeal else OnDarkFaint
             Box(
                 modifier = Modifier
-                    .size(8.dp)
+                    .size(Dimens.DotSize)
                     .clip(MaterialTheme.shapes.extraSmall)
                     .background(indicator)
             )

@@ -31,7 +31,7 @@ fun FbSurface(
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(Dimens.CardPadding)) {
             content()
         }
     }
@@ -211,10 +211,10 @@ fun BudBatteryIndicator(
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(Dimens.BatteryIndicatorGap)
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Canvas(modifier = Modifier.size(48.dp)) {
+            Canvas(modifier = Modifier.size(Dimens.BatteryIndicatorSize)) {
                 // Background track
                 drawArc(
                     color = OnDarkFaint,
@@ -324,7 +324,7 @@ fun FindBudToggle(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(48.dp)
+            .height(Dimens.RowHeight)
             .clip(MaterialTheme.shapes.extraSmall)
             .background(SurfaceVariant)
             .clickable(enabled = enabled) { onToggle(!isRinging) }

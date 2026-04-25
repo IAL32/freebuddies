@@ -41,21 +41,21 @@ fun SoundScreen(vm: FreeBudsViewModel) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
+            .padding(Dimens.ScreenPadding)
             .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(Dimens.SectionSpacing),
     ) {
         // Specialized presets
         FbSurface {
             Text(
                 text = "specialized",
                 style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(bottom = 12.dp)
+                modifier = Modifier.padding(bottom = Dimens.TitleBottomPadding)
             )
             EqPreset.entries
                 .filter { it.category == EqCategory.SPECIALIZED }
                 .forEachIndexed { index, preset ->
-                    if (index > 0) Spacer(Modifier.height(6.dp))
+                    if (index > 0) Spacer(Modifier.height(Dimens.RowSpacing))
                     EqPresetRow(
                         label = preset.label,
                         isSelected = eqPreset == preset,
@@ -70,12 +70,12 @@ fun SoundScreen(vm: FreeBudsViewModel) {
             Text(
                 text = "official presets",
                 style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(bottom = 12.dp)
+                modifier = Modifier.padding(bottom = Dimens.TitleBottomPadding)
             )
             EqPreset.entries
                 .filter { it.category == EqCategory.OFFICIAL }
                 .forEachIndexed { index, preset ->
-                    if (index > 0) Spacer(Modifier.height(6.dp))
+                    if (index > 0) Spacer(Modifier.height(Dimens.RowSpacing))
                     EqPresetRow(
                         label = preset.label,
                         isSelected = eqPreset == preset,
@@ -118,7 +118,7 @@ fun SoundScreen(vm: FreeBudsViewModel) {
                 )
             } else {
                 customProfiles.forEachIndexed { index, profile ->
-                    if (index > 0) Spacer(Modifier.height(6.dp))
+                    if (index > 0) Spacer(Modifier.height(Dimens.RowSpacing))
                     CustomProfileRow(
                         profile = profile,
                         isSelected = isCustomActive && customProfiles.indexOf(profile) == 0,
@@ -144,7 +144,7 @@ fun SoundScreen(vm: FreeBudsViewModel) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(44.dp)
+                    .height(Dimens.RowHeight)
                     .clip(MaterialTheme.shapes.extraSmall)
                     .background(SurfaceVariant)
                     .clickable {
