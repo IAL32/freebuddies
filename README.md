@@ -143,6 +143,10 @@ The full reverse-engineered SPP protocol reference — including frame format, T
 - **UI/UX improvements** — the interface is functional but minimal.
 - **Tests** — unit tests for protocol parsing and frame building.
 
+## License
+
+FreeBuddies is licensed under the [GNU Lesser General Public License v3.0](COPYING.LESSER). See [COPYING](COPYING) and [COPYING.LESSER](COPYING.LESSER) for the full license texts.
+
 ## Acknowledgments
 
 - [MelianMiko](https://mmk.pw/en/posts/freebuds-4i-proto/) — FreeBuds 4i protocol documentation
